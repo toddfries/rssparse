@@ -243,13 +243,14 @@ parse_to_text
 		my $a = "";
 		my $i = 0;
 		my @urls;
+		my @imgs;
 		while (my $t = $p->get_token()) {
 			if ($t->[0] eq "T") { # Text
 				my $tt = $t->[1];
-				if (!($tt =~ /^[ ]*$/)) {
-					$tt .= " ".$t->[1];
+				if (!($tt =~ /^[[:space:]]*$/)) {
+					$tt .= " ";
 				}
-				$tt =~ s/  / /g;
+				$tt =~ s/[[:space::]][[:space:]]+/ /g;
 				$c .= $tt;
 				next;
 			}
@@ -259,8 +260,8 @@ parse_to_text
 					next;
 				}
 				if ($t->[1] eq "img" && defined(${$t->[2]}{'src'})) {
-					$c .= " img";
-					push @urls,${$t->[2]}{'src'};
+					push @imgs,${$t->[2]}{'src'};
+					$c .= "img$#imgs";
 					next;
 				}
 				if ($t->[1] =~ /^(div|span|p)/) {
@@ -290,6 +291,7 @@ parse_to_text
 			if ($t->[0] eq "C") { # Comment
 				next;
 			}
+			if (0) {
 			printf "{";
 			$i=0;
 			foreach my $subt (@{$t}) {
@@ -310,16 +312,21 @@ parse_to_text
 				}
 			}
 			printf " }\n";
+			}
 		}
-		if (@urls) {
+		if (@urls || @imgs) {
 			$c .= "\n";
 		}
 		$i = 0;
 		foreach my $u (@urls) {
 			$c .= sprintf "[%d] %s\n",$i++,$u;
 		}
+		$i = 0;
+		foreach my $img (@imgs) {
+			$c .= sprintf "img%d %s\n",$i++,$img;
+		}
 		$text = $c;
-		$text =~ s/[ ]+/ /g;
+		$text =~ s/[[:space:]][[:space:]]+/ /g;
 	}
 	my $cset = MIME::Charset->new("ISO-8859-1");
 	#my $cset = MIME::Charset->new("US-ASCII");
@@ -331,9 +338,9 @@ parse_to_text
 			Charset => $rsscset );
 	$output =~ s/\x85/ /g;
 	$output =~ s/\x92/'/g;
-	$output =~ s/\x93/"/g;
-	$output =~ s/\x94/"/g;
-	$output =~ s/\x96/-/g;
+	$output =~ s/\x93/"/g; $output =~ s/&#8220;/"/g;
+	$output =~ s/\x94/"/g; $output =~ s/&#8221;/"/g;
+	$output =~ s/\x96/-/g; $output =~ s/&#8211;/-/g;
 	return $output;
 }
 
