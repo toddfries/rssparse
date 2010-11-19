@@ -14,18 +14,383 @@
 # ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
+use strict;
+use warnings;
+
 use XML::Feed;
+use HTML::TreeBuilder;
+use HTML::FormatText;
+use MIME::Charset;
+use Encode qw( decode_utf8 encode_utf8 );
+use XML::RSS;
+use LWP::UserAgent;
+use Date::Manip;
+use POSIX qw(strftime);
+use HTML::TokeParser;
 
-my $feed = XML::Feed->parse(URI->new('http://feeds.feedburner.com/myobsaidwhat')) or die XML::Feed->errstr;
+$XML::RSS::AUTO_ADD = 1; # force acceptance of extra namespaces
 
-print $feed->title, "\n";
 
-my $i = 0;
-for my $entry ($feed->entries) {
-	printf "%d: title: %s\n",$i,$entry->title;
-	printf "%d: link: %s\n",$i,$entry->link;
-	printf "%d: content: %s\n",$i,$entry->content;
-	printf "%d: summary: %s\n",$i,$entry->summary;
-	printf "%d: author: %s\n",$i,$entry->author;
-	$i++;
+my $ua = new LWP::UserAgent;
+$ua->agent( "R2E/0.0 " . $ua->agent );
+$ua->env_proxy();
+
+$| = 1; # Enable autoflush, really needed?
+foreach my $url (( 'http://feeds.feedburner.com/myobsaidwhat' )) {
+my ($site) = $url =~ m@^(.*://?[^/]+)/@;
+my ($base) = $url =~ m@^(.*://?.+)/@;
+my $rss;
+printf "Retrieving %s\n",$url;
+my $req = HTTP::Request->new(GET => $url);
+
+# $req->push_header( 'If-None-Match', $etag );
+# $req->push_header( 'If-Modified-Since', $modified );
+
+my $res = $ua->request( $req );
+
+my %hdrs;
+
+if (!$res->is_success ) {
+	die "Result !success for $url";
+}
+my $content = $res->content;
+
+for my $hdr ( "ETag", "Last-Modified", "Content-Type" ) {
+	my $val = $res->headers->header( $hdr );
+	printf "   %s: %s\n", $hdr, ( $val || "unset" );
+	if ($val) {
+		if ( $hdr eq "ETag" ) {
+			$hdrs{$hdr} = $val;
+			# save ETag
+		} elsif ( $hdr eq "Last-Modified" ) {
+			$hdrs{$hdr} = UnixDate($val,"%s");
+		} else {
+			$hdrs{$hdr} = $val;
+		}
+	}
+}
+
+my $contenttype = $hdrs{"Content-Type"};
+my $charset;
+if ($contenttype =~ /\bcharset=([^ ;]+)/) {
+		printf "  Charset: %s\n",$1;
+		$charset = $1;
+} else {
+		$charset = "";
+}
+$contenttype =~ s/;.*$//;
+printf "  Content-Type: %s\n",$contenttype;
+if ( $contenttype eq "text/html" ) {
+	# REALLY?
+	if ($content =~ /^<\?xml/ ) {
+		$contenttype = "text/xml";
+	} else {
+		printf "";
+	}
+}
+my $preparsed;
+# if Atom, switch to RSS
+if ( $content =~ m@(http://purl.org/atom|xmlns=["']?http://www.w3.org/2005/Atom)@si ) {
+	eval {
+		$preparsed = atom_to_rss( $content, $url );
+	};
+	if ($@) {
+		printf STDERR "Feed ($url): conversion to rss from atom failed! $@\n";
+		next;
+	}
+}
+
+# throw away everything before the first XML declaration so we
+# can get a clean parse if at all possible
+$content =~ s/^.*?(<\?xml)/$1/s;
+
+$content =~ s/&pound/\&amp;pound/gs;
+
+printf "  Parsing RSS\n";
+eval {
+	if (!defined($preparsed)) {
+		$rss = XML::RSS->new( version => "1.0", encoding => 'UTF-8',
+			encode_output => 1);
+		if (!$rss->parse($content)) {
+			my $err = "";
+			$err = $@ if $@;
+			$err .= " ($!)" if $! and $! ne "Success";
+			$err ||= "unknown error";
+			die "\nparser failed: $err.";
+		}
+	} else {
+		$rss = $preparsed;
+	}
+
+	printf "%s\n",$rss->{version};
+
+	my $channel = $rss->{channel};
+
+	# enable if XML::RSS still borks on feed images w/out titles or
+	#  no image tag
+	# delete $rss->{image}->{url} if defined( $rss->{image} );
+
+	# Cleanse
+	map {
+		# trim title
+		$_->{title} =~ s/\s+$//s;
+		$_->{title} =~ s/^\s+$//s;
+
+		# !title = !save
+		$_->{title} = "(untitled)" if !( $_->{title} );
+
+		# ? "RTE"
+		# if ( exists( $_->{item} )) {
+		#	delete $_->{item};
+		# }
+
+		# entities
+		#$_->{title} =~ s/&(?!(amp|gt|lt))/&amp;/gs;
+
+		# RSS 2.0 gives a content:encoded block which contains
+		# a formatted version of the post. Ideally I'd like to
+		# use this. Both description and content:encoded have
+		# entity escapes, though.
+		my $ctag = $_->{content};
+		if ( defined( $ctag ) and ref $ctag eq "HASH" and
+			defined( $ctag->{encoded})) {
+			$_->{description} = $ctag->{encoded};
+		}
+
+		# cope with 2.0 RSS feed
+		if ( defined( $_->{guid})) {
+			# don't overwrite good links
+			$_->{link} = $_->{guid} unless $_->{link};
+		}
+
+		# some of the pubDate stuff is messed up.
+		if (defined($_->{pubDate})) {
+			my $date = $_->{pubDate};
+
+			my $fixdate = UnixDate($date,"%s");
+			if (defined($fixdate)) {
+				$_->{pubDate} = strftime( "%a, %d %b %Y %H:%M:%S %z",
+					localtime( $fixdate ));
+			} else {
+				$_->{pubDate} =~ s/ (\d?\d:\d\d) / $1:00 /;
+			}
+			printf "%s\n",$_->{pubDate};
+		}
+
+		# ?
+		#$_->{description} =~ s/=&amp;quot;(.+?)&amp;quot;/="$1"/gis;
+
+		# human errors corrected
+		$_->{description} =~ s@(href|src|data)="/@$1="$site/@gs;
+		$_->{description} =~
+			s@(href|src|data)="(?!(http|ftp))@$1="$base/@gs;
+
+		# more whitespace cleansing
+		$_->{description} =~ s/^\s+//;
+		$_->{description} =~ s/\s+$//;
+	} @{$rss->{items}};
+
+	if ( @{$rss->{items}}) {
+		$rss->{charset} = $charset;
+		printf "%d items in %s\n",$#{$rss->{items}},$url;
+		handlerss($rss);
+	}
+}
+
+}
+
+sub
+handlerss
+{
+	my ($rss) = @_;
+
+	my $i = 0;
+	for my $item (@{$rss->{items}}) {
+		handletext($rss->{charset},$i,"title",$item->{title});
+		handletext($rss->{charset},$i,"link",$item->{link});
+		handletext($rss->{charset},$i,"guid",$item->{guid});
+		handletext($rss->{charset},$i,"desc",$item->{description});
+		$i++;
+	}
+}
+
+sub
+handletext
+{
+	my ($cset,$i,$var,$val) = @_;
+
+	printf "%d: ",$i;
+	printf "%s = ",$var;
+	printf "%s",parse_to_text($cset,$val);
+	printf "\n";
+}
+sub
+parse_to_text
+{
+	my ($rsscset,$text) = @_;
+
+	if (0) {
+		my $tree = HTML::TreeBuilder->new->parse($text);
+		$tree->eof();
+
+		my $formatter = HTML::FormatText->new(leftmargin => 0, rightmargin => 50);
+		$text = $formatter->format($tree);
+	} else {
+		printf "\n";
+		my $p = HTML::TokeParser->new( \$text );
+		$p->xml_mode(1);
+		my $c = "";
+		my $a = "";
+		my $i = 0;
+		my @urls;
+		while (my $t = $p->get_token()) {
+			if ($t->[0] eq "T") { # Text
+				my $tt = $t->[1];
+				if (!($tt =~ /^[ ]*$/)) {
+					$tt .= " ".$t->[1];
+				}
+				$tt =~ s/  / /g;
+				$c .= $tt;
+				next;
+			}
+			if ($t->[0] eq "S") { # Start tag
+				if ($t->[1] eq "a" && defined(${$t->[2]}{'href'})) {
+					push @urls,${$t->[2]}{'href'};
+					next;
+				}
+				if ($t->[1] eq "img" && defined(${$t->[2]}{'src'})) {
+					$c .= " img";
+					push @urls,${$t->[2]}{'src'};
+					next;
+				}
+				if ($t->[1] =~ /^(div|span|p)/) {
+					next;
+				}
+				if ($t->[1] eq "br") {
+					$c .= "\n";
+					next;
+				}
+			}
+			if ($t->[0] eq "E") { # End tag
+				if ($t->[1] eq "a") {
+					$c .= "[$#urls]";
+					next;
+				}
+				if ($t->[1] eq "img") {
+					next;
+				}
+				if ($t->[1] =~ /^(br|div|span)/) {
+					next;
+				}
+				if ($t->[1] eq "p") {
+					$c .= "\n";
+					next;
+				}
+			}
+			if ($t->[0] eq "C") { # Comment
+				next;
+			}
+			printf "{";
+			$i=0;
+			foreach my $subt (@{$t}) {
+				printf " %d=%s",$i++,$subt;
+				if (ref $subt eq "HASH") {
+					printf "{";
+					foreach my $key (keys %{$subt}) {
+						printf "%s=>%s,",$key,${$subt}{$key};
+					}
+					printf "}";
+				}
+				if (ref $subt eq "ARRAY") {
+					printf "[";
+					foreach my $key (@{$subt}) {
+						printf "%s,",$key;
+					}
+					printf "]";
+				}
+			}
+			printf " }\n";
+		}
+		if (@urls) {
+			$c .= "\n";
+		}
+		$i = 0;
+		foreach my $u (@urls) {
+			$c .= sprintf "[%d] %s\n",$i++,$u;
+		}
+		$text = $c;
+		$text =~ s/[ ]+/ /g;
+	}
+	my $cset = MIME::Charset->new("ISO-8859-1");
+	#my $cset = MIME::Charset->new("US-ASCII");
+	#if (Encode::is_utf8($text)) {
+	#	$text = Encode::decode('utf8',$text);
+	#	$text = Encode::decode('ascii',$text);
+	#}
+	my ($output, $charset, $encoding) = $cset->body_encode($text,
+			Charset => $rsscset );
+	$output =~ s/\x85/ /g;
+	$output =~ s/\x92/'/g;
+	$output =~ s/\x93/"/g;
+	$output =~ s/\x94/"/g;
+	$output =~ s/\x96/-/g;
+	return $output;
+}
+
+sub atom_to_rss {
+    my $feed = shift;
+    my $url = shift;
+
+    $feed =~ s/^.*?<\?xml/<?xml/gs;
+
+    my $atom = XML::Atom::Feed->new( \$feed ) or die $!;
+    my $rss = new XML::RSS(
+                           version => '1.0',
+                           encoding => 'UTF-8',
+                           encode_output => 1,
+                          );
+    my @links = $atom->link;
+    while ( @links ) {
+        last if $links[0]->type eq "text/html";
+        shift @links;
+    }
+
+    $rss->channel
+      (
+       title => $atom->title,
+       link => ( defined( $links[0] ) ? $links[0]->href :
+                 $url ),
+       description => $atom->subtitle,
+       dc => {
+              date => $atom->modified || $atom->updated,
+              language => $atom->language,
+             }
+      );
+
+    for my $entry ( $atom->entries ) {
+        if ( !defined( $entry->content )) {
+            if ( !defined( $entry->summary )) {
+                $entry->content( "no content" );
+            } else {
+                $entry->content( $entry->summary );
+            }
+        }
+
+        my %item = (
+            title => $entry->title,
+            link => $entry->link->href,
+            description => $entry->content->body,
+            dc => {
+                date => $entry->issued || $entry->updated,
+            },
+            );
+
+        if ( $entry->author ) {
+            $item{dc}->{creator} = $entry->author->name;
+        }
+
+        $rss->add_item(  %item );
+    }
+
+    return $rss;
 }
