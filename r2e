@@ -36,7 +36,10 @@ $ua->agent( "R2E/0.0 " . $ua->agent );
 $ua->env_proxy();
 
 $| = 1; # Enable autoflush, really needed?
-foreach my $url (( 'http://feeds.feedburner.com/myobsaidwhat' )) {
+foreach my $url ((
+#	'http://feeds.feedburner.com/myobsaidwhat',
+	'http://rss.slashdot.org/Slashdot/slashdot'
+)) {
 my ($site) = $url =~ m@^(.*://?[^/]+)/@;
 my ($base) = $url =~ m@^(.*://?.+)/@;
 my $rss;
@@ -174,7 +177,7 @@ eval {
 			} else {
 				$_->{pubDate} =~ s/ (\d?\d:\d\d) / $1:00 /;
 			}
-			printf "%s\n",$_->{pubDate};
+			#printf "%s\n",$_->{pubDate};
 		}
 
 		# ?
@@ -210,6 +213,28 @@ handlerss
 		handletext($rss->{charset},$i,"link",$item->{link});
 		handletext($rss->{charset},$i,"guid",$item->{guid});
 		handletext($rss->{charset},$i,"desc",$item->{description});
+		handletext($rss->{charset},$i,"pubDate",$item->{pubDate});
+		if (0) {
+		printf "%d: item is a %s\n",$i,ref($item);
+		foreach my $key (keys %{$item}) {
+			my $type = ref(${$item}{$key});
+			printf "%d: item key %s refers to a %s",$i,$key,$type;
+			if ($type eq "") {
+				printf "String?(%s)\n",${$item}{$key};
+				next;
+			}
+			if ($type eq "HASH") {
+				my %hash = %{${$item}{$key}};
+				printf "{";
+				foreach my $hkey (keys %hash) {
+					printf "'%s'=>'%s',",$hkey,$hash{$hkey};
+				}
+				printf "}\n";
+				next;
+			}
+			printf "(unhandled)\n";
+		}
+		}
 		$i++;
 	}
 }
@@ -261,7 +286,7 @@ parse_to_text
 				}
 				if ($t->[1] eq "img" && defined(${$t->[2]}{'src'})) {
 					push @imgs,${$t->[2]}{'src'};
-					$c .= "img$#imgs";
+					$c .= "%%img$#imgs%%";
 					next;
 				}
 				if ($t->[1] =~ /^(div|span|p)/) {
@@ -274,7 +299,7 @@ parse_to_text
 			}
 			if ($t->[0] eq "E") { # End tag
 				if ($t->[1] eq "a") {
-					$c .= "[$#urls]";
+					$c .= "%%url$#urls%%";
 					next;
 				}
 				if ($t->[1] eq "img") {
@@ -315,16 +340,32 @@ parse_to_text
 			}
 		}
 		if (@urls || @imgs) {
-			$c .= "\n";
+			$c .= "\n\n";
 		}
 		$i = 0;
+		my $cache;
+		@{$cache} = ();
 		foreach my $u (@urls) {
-			$c .= sprintf "[%d] %s\n",$i++,$u;
+			my $ucount = $#{$cache};
+			my $offset = getoffset($u,$cache);
+			if ($ucount < $#{$cache}) {
+				$c .= sprintf "[%d] %s\n",$offset,$u;
+			}
+			$c =~ s/%%url${i}%%/[${offset}]/g;
+			$i++;
 		}
 		$i = 0;
+		@{$cache} = ();
 		foreach my $img (@imgs) {
-			$c .= sprintf "img%d %s\n",$i++,$img;
+			my $icount = $#{$cache};
+			my $offset = getoffset($img,$cache);
+			if ($icount < $#{$cache}) {
+				$c .= sprintf "img%d %s\n",${offset},$img;
+			}
+			$c =~ s/%%img${i}%%/img${offset}/g;
+			$i++;
 		}
+		@{$cache} = ();
 		$text = $c;
 		$text =~ s/[[:space:]][[:space:]]+/ /g;
 	}
@@ -344,60 +385,77 @@ parse_to_text
 	return $output;
 }
 
-sub atom_to_rss {
-    my $feed = shift;
-    my $url = shift;
+sub
+atom_to_rss
+{
+	my $feed = shift;
+	my $url = shift;
 
-    $feed =~ s/^.*?<\?xml/<?xml/gs;
+	$feed =~ s/^.*?<\?xml/<?xml/gs;
 
-    my $atom = XML::Atom::Feed->new( \$feed ) or die $!;
-    my $rss = new XML::RSS(
-                           version => '1.0',
-                           encoding => 'UTF-8',
-                           encode_output => 1,
-                          );
-    my @links = $atom->link;
-    while ( @links ) {
-        last if $links[0]->type eq "text/html";
-        shift @links;
-    }
+	my $atom = XML::Atom::Feed->new( \$feed ) or die $!;
+	my $rss = new XML::RSS(
+			  version => '1.0',
+			  encoding => 'UTF-8',
+			  encode_output => 1,
+		 );
+	my @links = $atom->link;
+	while ( @links ) {
+		last if $links[0]->type eq "text/html";
+		shift @links;
+	}
 
-    $rss->channel
-      (
-       title => $atom->title,
-       link => ( defined( $links[0] ) ? $links[0]->href :
-                 $url ),
-       description => $atom->subtitle,
-       dc => {
-              date => $atom->modified || $atom->updated,
-              language => $atom->language,
-             }
-      );
+	$rss->channel
+	 (
+	  title => $atom->title,
+	  link => ( defined( $links[0] ) ? $links[0]->href :
+				$url ),
+	  description => $atom->subtitle,
+	  dc => {
+			 date => $atom->modified || $atom->updated,
+			 language => $atom->language,
+			}
+	 );
 
-    for my $entry ( $atom->entries ) {
-        if ( !defined( $entry->content )) {
-            if ( !defined( $entry->summary )) {
-                $entry->content( "no content" );
-            } else {
-                $entry->content( $entry->summary );
-            }
-        }
+	for my $entry ( $atom->entries ) {
+		if ( !defined( $entry->content )) {
+			if ( !defined( $entry->summary )) {
+				$entry->content( "no content" );
+			} else {
+				$entry->content( $entry->summary );
+			}
+		}
 
-        my %item = (
-            title => $entry->title,
-            link => $entry->link->href,
-            description => $entry->content->body,
-            dc => {
-                date => $entry->issued || $entry->updated,
-            },
-            );
+		my %item = (
+			title => $entry->title,
+			link => $entry->link->href,
+			description => $entry->content->body,
+			dc => {
+				date => $entry->issued || $entry->updated,
+			},
+			);
 
-        if ( $entry->author ) {
-            $item{dc}->{creator} = $entry->author->name;
-        }
+		if ( $entry->author ) {
+			$item{dc}->{creator} = $entry->author->name;
+		}
 
-        $rss->add_item(  %item );
-    }
+		$rss->add_item(  %item );
+	}
 
-    return $rss;
+	return $rss;
+}
+sub
+getoffset
+{
+	my ($item,$list) = @_;
+
+	my $i = 0;
+	foreach my $li (@{$list}) {
+		if ($li eq $item) {
+			return $i;
+		}
+		$i++;
+	}
+	push @{$list},$item;
+	return $i;
 }
