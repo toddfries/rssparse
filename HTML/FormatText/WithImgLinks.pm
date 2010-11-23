@@ -37,6 +37,7 @@ parse
 	my $c = "";
 	my $a = "";
 	my $i = 0;
+	my $f = "";
 	my @urls;
 	my @imgs;
 	while (my $t = $p->get_token()) {
@@ -112,7 +113,7 @@ parse
 	my $cache;
 	my $footnotefmt;
 	if (@urls) {
-		$c .= sprintf "\n\n";
+		$f .= "\n";
 		$i = 0;
 		@{$cache} = ();
 		foreach my $u (@urls) {
@@ -126,13 +127,13 @@ parse
 			my $urlstr = sprintf "[%x]",$offset;
 			$c =~ s/%%url${i}%%/$urlstr/g;
 			if ($ucount < $#{$cache}) {
-				$c .= sprintf "${footnotefmt}",$offset,$u;
+				$f .= sprintf "${footnotefmt}",$offset,$u;
 			}
 			$i++;
 		}
 	}
 	if (@imgs) {
-		$c .= sprintf "\n\n";
+		$f .= "\n";
 		@{$cache} = ();
 		foreach my $img (@imgs) {
 			$self->getoffset($img,$cache);
@@ -146,15 +147,37 @@ parse
 			my $imgstr = sprintf "IMG%x",$offset;
 			$c =~ s/%%img${i}%%/$imgstr/g;
 			if ($icount < $#{$cache}) {
-				$c .= sprintf ${footnotefmt},${offset},$img;
+				$f .= sprintf ${footnotefmt},${offset},$img;
 			}
 			$i++;
 		}
 	}
 	@{$cache} = ();
 	$text = $c;
-	$text =~ s/[[:space:]][[:space:]]+/ /g;
-	return $text;
+	$text =~ s/[ \t]+/ /g;
+	$text =~ s/(IMG[0-9]+|\[[0-9]+\])[[:space:]]+(IMG[0-9]+|\[[0-9]+\])/$1 $2/g;
+
+	my $out="";
+	my $lm=0;
+	my $rm=72;
+	my $pos=0;
+	foreach my $line (split(/\n/,$text)) {
+		foreach my $word (split(/[ \t]/,$line)) {
+			if (($pos+length($word)+1) > $rm && length($word) < $rm) {
+				$out.="\n";
+				$pos=0;
+			}
+			$out .= $word." ";
+			$pos += length($word)+1;
+		}
+		if ($pos > 0 ) {
+			$out.="\n";
+		}
+	}
+	$out =~ s/[ \t]*$//g;
+	# add footnotes
+	$out .= $f;
+	return $out;
 }
 
 sub
