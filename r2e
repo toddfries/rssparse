@@ -29,6 +29,7 @@ use LWP::UserAgent;
 use Date::Manip;
 use POSIX qw(strftime);
 use HTML::TokeParser;
+use Digest::SHA qw/sha256_base64/;
 
 $XML::RSS::AUTO_ADD = 1; # force acceptance of extra namespaces
 
@@ -39,7 +40,7 @@ $ua->env_proxy();
 
 $| = 1; # Enable autoflush, really needed?
 foreach my $url ((
-#	'http://feeds.feedburner.com/myobsaidwhat',
+	'http://feeds.feedburner.com/myobsaidwhat',
 	'http://rss.slashdot.org/Slashdot/slashdot'
 )) {
 my ($site) = $url =~ m@^(.*://?[^/]+)/@;
@@ -129,8 +130,7 @@ eval {
 
 	printf "%s\n",$rss->{version};
 
-	my $channel = $rss->{channel};
-
+	#my $channel = $rss->{channel};
 	# enable if XML::RSS still borks on feed images w/out titles or
 	#  no image tag
 	# delete $rss->{image}->{url} if defined( $rss->{image} );
@@ -197,6 +197,7 @@ eval {
 
 	if ( @{$rss->{items}}) {
 		$rss->{charset} = $charset;
+		printf "charset %s lang %s\n",$charset,$rss->{channel}->{dc}->{language} || 'undef';
 		printf "%d items in %s\n",$#{$rss->{items}},$url;
 		handlerss($rss);
 	}
@@ -210,13 +211,30 @@ handlerss
 	my ($rss) = @_;
 
 	my $i = 0;
+
+	my $fromemail = $rss->{channel}->{dc}->{creator};
+	if (!defined($fromemail)) {
+		$fromemail = "r2e\@example.com";
+	}
+	my $fromname = handletext($rss->{charset},$rss->{channel}->{title});
+	if (defined($fromname)) {
+		$fromname .= " ";
+	} else {
+		$fromname = "";
+	}
+
 	for my $item (@{$rss->{items}}) {
-		handletext($rss->{charset},$i,"title",$item->{title});
-		handletext($rss->{charset},$i,"link",$item->{link});
-		handletext($rss->{charset},$i,"guid",$item->{guid});
-		handletext($rss->{charset},$i,"desc",$item->{description});
-		handletext($rss->{charset},$i,"pubDate",$item->{pubDate});
+		printf "\n";
+		printf "From: %s<%s>\n",$fromname,$fromemail;
+		printf "Subject: %s\n",handletext($rss->{charset},$item->{title});
+		printf "Message-Id: <%s.r2e\@rss2email>\n",sha256_base64($item->{guid});
+		printf "Date: %s\n",$item->{pubDate};
+		printf "\n";
+		printf "%s\n",handletext($rss->{charset},$item->{description});
+		printf "\n";
+		printf "URL: %s\n",$item->{link};
 		if (0) {
+		printf "GUID: %s\n",$item->{guid};
 		printf "%d: item is a %s\n",$i,ref($item);
 		foreach my $key (keys %{$item}) {
 			my $type = ref(${$item}{$key});
@@ -244,18 +262,15 @@ handlerss
 sub
 handletext
 {
-	my ($cset,$i,$var,$val) = @_;
-
-	printf "%d: ",$i;
-	printf "%s = ",$var;
+	my ($cset,$text) = @_;
+	my $r = "";
 	eval {
-		printf "%s",parse_to_text($cset,$val);
+		$r .= sprintf "%s",parse_to_text($cset,$text);
 	};
 	if ($@) {
 		printf STDERR " .. parse_to_text failed! $@\n";
-	} else {
-		printf "\n";
 	}
+	return $r;
 }
 sub
 parse_to_text
@@ -292,6 +307,9 @@ parse_to_text
 	$output =~ s/\x93/"/g; $output =~ s/&#8220;/"/g;
 	$output =~ s/\x94/"/g; $output =~ s/&#8221;/"/g;
 	$output =~ s/\x96/-/g; $output =~ s/&#8211;/-/g;
+	$output =~ s/\xA0\xAD/ /g;
+	$output =~ s/[[:space:]]$//g;
+	$output =~ s/&mdash;/--/g;
 	return $output;
 }
 
@@ -304,15 +322,22 @@ atom_to_rss
 	$feed =~ s/^.*?<\?xml/<?xml/gs;
 
 	my $atom = XML::Atom::Feed->new( \$feed ) or die $!;
+	my $lang = $atom->language;
 	my $rss = new XML::RSS(
 			  version => '1.0',
-			  encoding => 'UTF-8',
+			  encoding => $lang || 'UTF-8',
 			  encode_output => 1,
 		 );
 	my @links = $atom->link;
 	while ( @links ) {
 		last if $links[0]->type eq "text/html";
 		shift @links;
+	}
+
+	my $person = $atom->author();
+	my $email;
+	if (defined($person)) {
+		$email = $person->email();
 	}
 
 	$rss->channel
@@ -324,8 +349,11 @@ atom_to_rss
 	  dc => {
 			 date => $atom->modified || $atom->updated,
 			 language => $atom->language,
+			 creator => $email,
+			 language => $lang,
 			}
 	 );
+
 
 	for my $entry ( $atom->entries ) {
 		if ( !defined( $entry->content )) {
