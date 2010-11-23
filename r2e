@@ -19,6 +19,8 @@ use warnings;
 
 use XML::Feed;
 use HTML::TreeBuilder;
+use HTML::FormatText::WithLinks;
+use HTML::FormatText::WithImgLinks;
 use HTML::FormatText;
 use MIME::Charset;
 use Encode qw( decode_utf8 encode_utf8 );
@@ -246,8 +248,14 @@ handletext
 
 	printf "%d: ",$i;
 	printf "%s = ",$var;
-	printf "%s",parse_to_text($cset,$val);
-	printf "\n";
+	eval {
+		printf "%s",parse_to_text($cset,$val);
+	};
+	if ($@) {
+		printf STDERR " .. parse_to_text failed! $@\n";
+	} else {
+		printf "\n";
+	}
 }
 sub
 parse_to_text
@@ -260,114 +268,16 @@ parse_to_text
 
 		my $formatter = HTML::FormatText->new(leftmargin => 0, rightmargin => 50);
 		$text = $formatter->format($tree);
+	} elsif (0) {
+		my $f = HTML::FormatText::WithLinks->new(
+				before_link => '',
+				after_link => '[%n]',
+				footnote => '%n. %l',
+			);
+		$text = $f->parse($text);
 	} else {
-		printf "\n";
-		my $p = HTML::TokeParser->new( \$text );
-		$p->xml_mode(1);
-		my $c = "";
-		my $a = "";
-		my $i = 0;
-		my @urls;
-		my @imgs;
-		while (my $t = $p->get_token()) {
-			if ($t->[0] eq "T") { # Text
-				my $tt = $t->[1];
-				if (!($tt =~ /^[[:space:]]*$/)) {
-					$tt .= " ";
-				}
-				$tt =~ s/[[:space::]][[:space:]]+/ /g;
-				$c .= $tt;
-				next;
-			}
-			if ($t->[0] eq "S") { # Start tag
-				if ($t->[1] eq "a" && defined(${$t->[2]}{'href'})) {
-					push @urls,${$t->[2]}{'href'};
-					next;
-				}
-				if ($t->[1] eq "img" && defined(${$t->[2]}{'src'})) {
-					push @imgs,${$t->[2]}{'src'};
-					$c .= "%%img$#imgs%%";
-					next;
-				}
-				if ($t->[1] =~ /^(div|span|p)/) {
-					next;
-				}
-				if ($t->[1] eq "br") {
-					$c .= "\n";
-					next;
-				}
-			}
-			if ($t->[0] eq "E") { # End tag
-				if ($t->[1] eq "a") {
-					$c .= "%%url$#urls%%";
-					next;
-				}
-				if ($t->[1] eq "img") {
-					next;
-				}
-				if ($t->[1] =~ /^(br|div|span)/) {
-					next;
-				}
-				if ($t->[1] eq "p") {
-					$c .= "\n";
-					next;
-				}
-			}
-			if ($t->[0] eq "C") { # Comment
-				next;
-			}
-			if (0) {
-			printf "{";
-			$i=0;
-			foreach my $subt (@{$t}) {
-				printf " %d=%s",$i++,$subt;
-				if (ref $subt eq "HASH") {
-					printf "{";
-					foreach my $key (keys %{$subt}) {
-						printf "%s=>%s,",$key,${$subt}{$key};
-					}
-					printf "}";
-				}
-				if (ref $subt eq "ARRAY") {
-					printf "[";
-					foreach my $key (@{$subt}) {
-						printf "%s,",$key;
-					}
-					printf "]";
-				}
-			}
-			printf " }\n";
-			}
-		}
-		if (@urls || @imgs) {
-			$c .= "\n\n";
-		}
-		$i = 0;
-		my $cache;
-		@{$cache} = ();
-		foreach my $u (@urls) {
-			my $ucount = $#{$cache};
-			my $offset = getoffset($u,$cache);
-			if ($ucount < $#{$cache}) {
-				$c .= sprintf "[%d] %s\n",$offset,$u;
-			}
-			$c =~ s/%%url${i}%%/[${offset}]/g;
-			$i++;
-		}
-		$i = 0;
-		@{$cache} = ();
-		foreach my $img (@imgs) {
-			my $icount = $#{$cache};
-			my $offset = getoffset($img,$cache);
-			if ($icount < $#{$cache}) {
-				$c .= sprintf "img%d %s\n",${offset},$img;
-			}
-			$c =~ s/%%img${i}%%/img${offset}/g;
-			$i++;
-		}
-		@{$cache} = ();
-		$text = $c;
-		$text =~ s/[[:space:]][[:space:]]+/ /g;
+		my $f = HTML::FormatText::WithImgLinks->new();
+		$text = $f->parse($text);
 	}
 	my $cset = MIME::Charset->new("ISO-8859-1");
 	#my $cset = MIME::Charset->new("US-ASCII");
@@ -444,18 +354,5 @@ atom_to_rss
 
 	return $rss;
 }
-sub
-getoffset
-{
-	my ($item,$list) = @_;
 
-	my $i = 0;
-	foreach my $li (@{$list}) {
-		if ($li eq $item) {
-			return $i;
-		}
-		$i++;
-	}
-	push @{$list},$item;
-	return $i;
-}
+1;
