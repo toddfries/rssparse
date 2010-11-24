@@ -23,7 +23,7 @@ use HTML::FormatText::WithLinks;
 use HTML::FormatText::WithImgLinks;
 use HTML::FormatText;
 use MIME::Charset;
-use Encode qw( decode_utf8 encode_utf8 );
+use Encode qw( encode decode decode_utf8 encode_utf8 );
 use XML::RSS;
 use LWP::UserAgent;
 use Date::Manip;
@@ -33,6 +33,12 @@ use Digest::SHA qw/sha256_base64/;
 
 $XML::RSS::AUTO_ADD = 1; # force acceptance of extra namespaces
 
+use OpenBSD::Getopt;
+
+our $opt_v = 0;
+getopts('v');
+
+my $debug = $opt_v;
 
 my $ua = new LWP::UserAgent;
 $ua->agent( "R2E/0.0 " . $ua->agent );
@@ -40,13 +46,19 @@ $ua->env_proxy();
 
 $| = 1; # Enable autoflush, really needed?
 foreach my $url ((
-	'http://feeds.feedburner.com/myobsaidwhat',
-	'http://rss.slashdot.org/Slashdot/slashdot'
+#	'http://twitter.com/statuses/user_timeline/40972132.rss',
+#	'http://rss.ireport.com/feeds/oncnn.rss',
+#	'http://feeds.feedburner.com/myobsaidwhat',
+#	'http://rss.slashdot.org/Slashdot/slashdot'
+	'http://127.0.0.1/rss/dr_twitter.xml',
+	'http://127.0.0.1/rss/myobsaid.xml',
+	'http://127.0.0.1/rss/cnn.xml',
+	'http://127.0.0.1/rss/slashdot.xml',
 )) {
 my ($site) = $url =~ m@^(.*://?[^/]+)/@;
 my ($base) = $url =~ m@^(.*://?.+)/@;
 my $rss;
-printf "Retrieving %s\n",$url;
+printf STDERR "Retrieving %s\n",$url;
 my $req = HTTP::Request->new(GET => $url);
 
 # $req->push_header( 'If-None-Match', $etag );
@@ -59,11 +71,11 @@ my %hdrs;
 if (!$res->is_success ) {
 	die "Result !success for $url";
 }
-my $content = $res->content;
+my $content = decode('utf-8',$res->content);
 
 for my $hdr ( "ETag", "Last-Modified", "Content-Type" ) {
 	my $val = $res->headers->header( $hdr );
-	printf "   %s: %s\n", $hdr, ( $val || "unset" );
+	#printf "   %s: %s\n", $hdr, ( $val || "unset" );
 	if ($val) {
 		if ( $hdr eq "ETag" ) {
 			$hdrs{$hdr} = $val;
@@ -75,26 +87,30 @@ for my $hdr ( "ETag", "Last-Modified", "Content-Type" ) {
 		}
 	}
 }
+$res = undef;
 
 my $contenttype = $hdrs{"Content-Type"};
 my $charset;
 if ($contenttype =~ /\bcharset=([^ ;]+)/) {
-		printf "  Charset: %s\n",$1;
+		#printf "  Charset: %s\n",$1;
 		$charset = $1;
 } else {
-		$charset = "";
+		$charset = "UTF-8";
 }
 $contenttype =~ s/;.*$//;
-printf "  Content-Type: %s\n",$contenttype;
+#printf "  Content-Type: %s\n",$contenttype;
 if ( $contenttype eq "text/html" ) {
 	# REALLY?
 	if ($content =~ /^<\?xml/ ) {
 		$contenttype = "text/xml";
-	} else {
-		printf "";
 	}
 }
+#my $text_string = decode($charset,$content);
+#$content = $text_string;
+#$text_string = undef;
 my $preparsed;
+$content =~ s/&pound/\&amp;pound/gs;
+$content =~ s/[[:space:]][[:space:]]*/ /gs;
 # if Atom, switch to RSS
 if ( $content =~ m@(http://purl.org/atom|xmlns=["']?http://www.w3.org/2005/Atom)@si ) {
 	eval {
@@ -110,12 +126,11 @@ if ( $content =~ m@(http://purl.org/atom|xmlns=["']?http://www.w3.org/2005/Atom)
 # can get a clean parse if at all possible
 $content =~ s/^.*?(<\?xml)/$1/s;
 
-$content =~ s/&pound/\&amp;pound/gs;
 
-printf "  Parsing RSS\n";
-eval {
-	if (!defined($preparsed)) {
-		$rss = XML::RSS->new( version => "1.0", encoding => 'UTF-8',
+printf STDERR "  Parsing RSS ";
+if (!defined($preparsed)) {
+	eval {
+		$rss = XML::RSS->new( version => "1.0", encoding => $charset || 'UTF-8',
 			encode_output => 1);
 		if (!$rss->parse($content)) {
 			my $err = "";
@@ -124,11 +139,15 @@ eval {
 			$err ||= "unknown error";
 			die "\nparser failed: $err.";
 		}
-	} else {
-		$rss = $preparsed;
 	}
+} else {
+	$rss = $preparsed;
+}
 
-	printf "%s\n",$rss->{version};
+$content = undef;
+
+eval {
+	#printf "%s\n",$rss->{version};
 
 	#my $channel = $rss->{channel};
 	# enable if XML::RSS still borks on feed images w/out titles or
@@ -197,8 +216,8 @@ eval {
 
 	if ( @{$rss->{items}}) {
 		$rss->{charset} = $charset;
-		printf "charset %s lang %s\n",$charset,$rss->{channel}->{dc}->{language} || 'undef';
-		printf "%d items in %s\n",$#{$rss->{items}},$url;
+		printf STDERR "charset %s lang %s\n",$charset,$rss->{channel}->{dc}->{language} || 'undef';
+		printf STDERR "  %d items in %s\n",$#{$rss->{items}}+1,$url;
 		handlerss($rss);
 	}
 }
@@ -216,47 +235,131 @@ handlerss
 	if (!defined($fromemail)) {
 		$fromemail = "r2e\@example.com";
 	}
-	my $fromname = handletext($rss->{charset},$rss->{channel}->{title});
-	if (defined($fromname)) {
-		$fromname .= " ";
-	} else {
-		$fromname = "";
-	}
-
+	my $rssfromname = handletext($rss->{charset},$rss->{channel}->{title});
+	my $recipient = "todd\@t41.fries.net";
+	printf STDERR "  ";
+	my $itemcount = 0;
 	for my $item (@{$rss->{items}}) {
-		printf "\n";
-		printf "From: %s<%s>\n",$fromname,$fromemail;
-		printf "Subject: %s\n",handletext($rss->{charset},$item->{title});
-		printf "Message-Id: <%s.r2e\@rss2email>\n",sha256_base64($item->{guid});
-		printf "Date: %s\n",$item->{pubDate};
-		printf "\n";
-		printf "%s\n",handletext($rss->{charset},$item->{description});
-		printf "\n";
-		printf "URL: %s\n",$item->{link};
-		if (0) {
-		printf "GUID: %s\n",$item->{guid};
-		printf "%d: item is a %s\n",$i,ref($item);
-		foreach my $key (keys %{$item}) {
-			my $type = ref(${$item}{$key});
-			printf "%d: item key %s refers to a %s",$i,$key,$type;
-			if ($type eq "") {
-				printf "String?(%s)\n",${$item}{$key};
-				next;
+		if ($debug) {
+			printf STDERR "\n%d.",++$itemcount;
+		} else {
+			printf STDERR ".";
+		}
+		my $itemfromname = handletext($rss->{charset},$item->{dc}->{creator});
+		my $fromname;
+		if (defined($rssfromname) && length($rssfromname) > 0) {
+			$fromname = $rssfromname;
+			if ($rssfromname eq $itemfromname) {
+				$itemfromname = "";
 			}
-			if ($type eq "HASH") {
-				my %hash = %{${$item}{$key}};
-				printf "{";
-				foreach my $hkey (keys %hash) {
-					printf "'%s'=>'%s',",$hkey,$hash{$hkey};
+		}
+		if (defined($itemfromname) && length($itemfromname) > 0) {
+			$itemfromname =~ s/[[:space:]][[:space:]]*/ /gs;
+			$itemfromname =~ s/[[:space:]]*$//g;
+			$fromname .= sprintf "/%s",$itemfromname;
+		}
+		if (defined($fromname)) {
+			$fromname .= " ";
+		} else {
+			$fromname = "";
+		}
+		$fromname =~ s/[[:space:]][[:space:]]*/ /gs;
+		my $fromstr = sprintf "%s<%s>",$fromname,$fromemail;
+		if ($debug) {
+			printf STDERR "from %s\n%d.",decode('utf-8',$fromstr),$itemcount;
+		}
+
+		my $title = handletext($rss->{charset},$item->{title});
+		$title =~ s/[[:space:]][[:space:]]*/ /gs;
+		$title =~ s/^"(.*)"$/$1/g;
+		my $desc = handletext($rss->{charset},$item->{description});
+		if (compare($desc,$title) && length($title) > 80) {
+			$title = substr($title,0,65)."...";
+		}
+		if ($debug) {
+			printf STDERR "title %s\n%d.",encode('utf-8',$title),$itemcount;
+		}
+
+		my $mailstr = "";
+		eval {
+		$mailstr .= sprintf "From: %s\n",$fromstr;
+		$mailstr .= sprintf "To: %s\n",$recipient;
+		$mailstr .= sprintf "Subject: %s\n",$title;
+		$mailstr .= sprintf "Message-Id: <%s.%s\@r2e>\n", sha256_base64($item->{guid}), strftime("%s",gmtime);
+		$mailstr .= sprintf "Date: %s\n",$item->{pubDate};
+		$mailstr .= sprintf "User-Agent: r2e\n";
+		if (defined($item->{category})) {
+			my $tags = "";
+			if (ref($item->{category}) eq "ARRAY") {
+				foreach my $tag (@{$item->{category}}) {
+					$tags .= "$tag,";
 				}
-				printf "}\n";
+				$tags =~ s/,$//;
+			} else {
+				$tags = $item->{category};
+			}
+			$mailstr .= sprintf "X-RSS-Tags: %s\n", $tags;
+		}
+		$mailstr .= sprintf "\n";
+		$mailstr .= sprintf "%s\n",$desc;
+		$mailstr .= sprintf "\n";
+		};
+		if ($@) {
+			printf STDERR "failed std mailstr ops: $@\n";
+		}
+		my %vars;
+		eval {
+		if (defined($item->{link})) {
+			$vars{'URL'} = $item->{link};
+		}
+		if (defined($item->{enclosure}->{url})) {
+			$vars{'ENC'} = $item->{enclosure}->{url};
+		}
+		if (defined($item->{'http://www.georss.org/georss'}->{point})) {
+			$vars{'LOC'} = $item->{'http://www.georss.org/georss'}->{point};
+		}
+		if ($debug) {
+			if (defined($item->{guid})) {
+				$vars{'GUID'} = $item->{guid};
+			}
+		}
+		};
+		if ($@) {
+			printf STDERR "failed var assignments: $@\n";
+		}
+		my $maxlen = 0;
+		foreach my $v (keys %vars) {
+			my $len = length($v);
+			if ($len > $maxlen) {
+				$maxlen = $len;
+			}
+		}
+		# three items first in a specific order, the rest after
+		my @order = ('URL','TAGS','ENC',keys %vars);
+		foreach my $v (@order) {
+			if (!defined($vars{$v})) {
 				next;
 			}
-			printf "(unhandled)\n";
+			$mailstr .= sprintf "%${maxlen}s: %s\n",$v,$vars{$v};
+			$vars{$v} = undef;
 		}
+		if ($debug) {
+			foreach my $key (keys %{$item}) {
+				$mailstr .= recurse_types("$i: item key $key",$item->{$key});
+			}
 		}
+		$mailstr .= "\n";
+		#$mailstr =~ s/Slashdot([^\.])/\/.$1/g;
+		if ($debug) {
+			open(MAIL,">>/dev/stdout");
+		} else {
+			open(MAIL,"|/usr/sbin/sendmail $recipient");
+		}
+		printf MAIL "%s",encode('utf-8',$mailstr);
+		close(MAIL);
 		$i++;
 	}
+	printf STDERR "\n";
 }
 
 sub
@@ -265,52 +368,33 @@ handletext
 	my ($cset,$text) = @_;
 	my $r = "";
 	eval {
-		$r .= sprintf "%s",parse_to_text($cset,$text);
+		my $tdebug = 0;
+		if ($tdebug) {
+			printf STDERR "Input : '%s'\n",$text;
+		}
+		$r = parse_to_text($cset,encode('UTF-8',$text));
+		if ($tdebug) {
+		foreach my $lang (('iso-8859-1','iso-8859-2','iso-8859-16',
+				'ascii','ascii-ctrl','utf-8')) {
+			printf STDERR "Output: '%s'(%s)\n",encode($lang,$r),$lang;
+		}
+		}
 	};
 	if ($@) {
 		printf STDERR " .. parse_to_text failed! $@\n";
 	}
-	return $r;
+	return $r; # encode('utf-8',$r);
 }
 sub
 parse_to_text
 {
 	my ($rsscset,$text) = @_;
 
-	if (0) {
-		my $tree = HTML::TreeBuilder->new->parse($text);
-		$tree->eof();
+	my $f = HTML::FormatText::WithImgLinks->new($rsscset);
+	$text = $f->parse($text);
+	$f = undef;
 
-		my $formatter = HTML::FormatText->new(leftmargin => 0, rightmargin => 50);
-		$text = $formatter->format($tree);
-	} elsif (0) {
-		my $f = HTML::FormatText::WithLinks->new(
-				before_link => '',
-				after_link => '[%n]',
-				footnote => '%n. %l',
-			);
-		$text = $f->parse($text);
-	} else {
-		my $f = HTML::FormatText::WithImgLinks->new();
-		$text = $f->parse($text);
-	}
-	my $cset = MIME::Charset->new("ISO-8859-1");
-	#my $cset = MIME::Charset->new("US-ASCII");
-	#if (Encode::is_utf8($text)) {
-	#	$text = Encode::decode('utf8',$text);
-	#	$text = Encode::decode('ascii',$text);
-	#}
-	my ($output, $charset, $encoding) = $cset->body_encode($text,
-			Charset => $rsscset );
-	$output =~ s/\x85/ /g;
-	$output =~ s/\x92/'/g;
-	$output =~ s/\x93/"/g; $output =~ s/&#8220;/"/g;
-	$output =~ s/\x94/"/g; $output =~ s/&#8221;/"/g;
-	$output =~ s/\x96/-/g; $output =~ s/&#8211;/-/g;
-	$output =~ s/\xA0\xAD/ /g;
-	$output =~ s/[[:space:]]$//g;
-	$output =~ s/&mdash;/--/g;
-	return $output;
+	return $text;
 }
 
 sub
@@ -355,6 +439,7 @@ atom_to_rss
 	 );
 
 
+	my $dc = XML::Atom::Namespace->new(dc => 'http://purl.org/dc/elements/1.1/');
 	for my $entry ( $atom->entries ) {
 		if ( !defined( $entry->content )) {
 			if ( !defined( $entry->summary )) {
@@ -370,6 +455,7 @@ atom_to_rss
 			description => $entry->content->body,
 			dc => {
 				date => $entry->issued || $entry->updated,
+				creator => $entry->get($dc, 'creator'),
 			},
 			);
 
@@ -381,6 +467,39 @@ atom_to_rss
 	}
 
 	return $rss;
+}
+sub
+recurse_types
+{
+	my ($str,$item) = @_;
+	my $type = ref($item);
+	if ($type eq "") {
+		return (sprintf("%s Data('%s'[%dB])\n",$str,$item,length($item)));
+	}
+	my $retstr = "";
+	if ($type eq "HASH") {
+		foreach my $hkey (keys %{$item}) {
+			$retstr .= recurse_types("$str: $hkey =>",${$item}{$hkey});
+		}
+		return $retstr;
+	}
+	if ($type eq "ARRAY") {
+		foreach my $subitem (@{$item}) {
+			$retstr .= recurse_types("$str: (",$subitem);
+		}
+		return $retstr;
+	}
+	$retstr .= "$str: unhandled type: $type\n";
+	return $retstr;
+}
+sub
+compare
+{
+	my ($str1,$str2) = @_;
+
+	$str1 =~ s/[[:space:]][[:space:]]*/ /g;
+	$str2 =~ s/[[:space:]][[:space:]]*/ /g;
+	return ($str1 eq $str2);
 }
 
 1;
