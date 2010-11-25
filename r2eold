@@ -1,0 +1,542 @@
+#!/usr/bin/perl
+
+# Copyright (c) 2010 Todd T. Fries <todd@fries.net>
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+use strict;
+use warnings;
+
+use XML::Atom::Feed;
+use XML::Feed;
+use XML::RSS;
+use HTML::FormatText::WithImgLinks;
+use Encode qw( encode decode );
+use LWP::UserAgent;
+use Date::Manip;
+use POSIX qw(strftime);
+use Digest::SHA qw/sha256_base64/;
+
+$XML::RSS::AUTO_ADD = 1; # force acceptance of extra namespaces
+
+use OpenBSD::Getopt;
+
+our $opt_v = 0;
+getopts('v');
+
+my $debug = $opt_v;
+
+my $config_file = $ENV{'HOME'}."/.r2e.conf";
+my %conf;
+if (open(C, $config_file)) {
+	while (<C>) {
+		next if /^#/;
+		last if /^END$/;
+		my $line;
+		chomp($line=$_);
+		my ($var,$val) = split(/=/,$line,2);
+		push @{$conf{$var}}, $val;
+	}
+	close(C);
+} else {
+	die "Failed to open config $config_file: $!";
+}
+
+if (!defined(${$conf{'XML'}}[0])) {
+	die "Failed to find XML in config $config_file";
+}
+
+
+my $ua = new LWP::UserAgent;
+$ua->agent( "R2E/0.0 " . $ua->agent );
+$ua->env_proxy();
+
+$| = 1; # Enable autoflush, really needed?
+foreach my $url (@{$conf{'XML'}}) {
+my ($site) = $url =~ m@^(.*://?[^/]+)/@;
+my ($base) = $url =~ m@^(.*://?.+)/@;
+my $rss;
+printf STDERR "Retrieving %s\n",$url;
+my $req = HTTP::Request->new(GET => $url);
+
+# $req->push_header( 'If-None-Match', $etag );
+# $req->push_header( 'If-Modified-Since', $modified );
+
+my $res = $ua->request( $req );
+
+my %hdrs;
+
+if (!$res->is_success ) {
+	die "Result !success for $url";
+}
+my $content = decode('utf-8',$res->content);
+
+for my $hdr ( "ETag", "Last-Modified", "Content-Type" ) {
+	my $val = $res->headers->header( $hdr );
+	#printf "   %s: %s\n", $hdr, ( $val || "unset" );
+	if ($val) {
+		if ( $hdr eq "ETag" ) {
+			$hdrs{$hdr} = $val;
+			# save ETag
+		} elsif ( $hdr eq "Last-Modified" ) {
+			$hdrs{$hdr} = UnixDate($val,"%s");
+		} else {
+			$hdrs{$hdr} = $val;
+		}
+	}
+}
+$res = undef;
+
+my $contenttype = $hdrs{"Content-Type"};
+my $charset;
+if ($contenttype =~ /\bcharset=([^ ;]+)/) {
+		#printf "  Charset: %s\n",$1;
+		$charset = $1;
+} else {
+		$charset = "UTF-8";
+}
+$contenttype =~ s/;.*$//;
+#printf "  Content-Type: %s\n",$contenttype;
+if ( $contenttype eq "text/html" ) {
+	# REALLY?
+	if ($content =~ /^<\?xml/ ) {
+		$contenttype = "text/xml";
+	}
+}
+#my $text_string = decode($charset,$content);
+#$content = $text_string;
+#$text_string = undef;
+my $preparsed;
+$content =~ s/&pound/\&amp;pound/gs;
+$content =~ s/[[:space:]][[:space:]]*/ /gs;
+# if Atom, switch to RSS
+if ( $content =~ m@(http://purl.org/atom|xmlns=["']?http://www.w3.org/2005/Atom)@si ) {
+	eval {
+		$preparsed = atom_to_rss( $content, $url );
+	};
+	if ($@) {
+		printf STDERR "Feed ($url): conversion to rss from atom failed! $@\n";
+		next;
+	}
+}
+
+# throw away everything before the first XML declaration so we
+# can get a clean parse if at all possible
+$content =~ s/^.*?(<\?xml)/$1/s;
+
+
+printf STDERR "  Parsing RSS ";
+if (!defined($preparsed)) {
+	eval {
+		$rss = XML::RSS->new( version => "1.0", encoding => $charset || 'UTF-8',
+			encode_output => 1);
+		if ($debug) {
+			printf STDERR "\n\n=----- Content-----=\n\n";
+			printf STDERR "%s\n",$content;
+		}
+		if (!$rss->parse($content)) {
+			my $err = "";
+			$err = $@ if $@;
+			$err .= " ($!)" if $! and $! ne "Success";
+			$err ||= "unknown error";
+			die "\nparser failed: $err.";
+		}
+	}
+} else {
+	$rss = $preparsed;
+}
+
+$content = undef;
+
+eval {
+	#printf "%s\n",$rss->{version};
+
+	#my $channel = $rss->{channel};
+	# enable if XML::RSS still borks on feed images w/out titles or
+	#  no image tag
+	# delete $rss->{image}->{url} if defined( $rss->{image} );
+
+	# Cleanse
+	map {
+		# trim title
+		$_->{title} =~ s/\s+$//s;
+		$_->{title} =~ s/^\s+$//s;
+
+		# !title = !save
+		$_->{title} = "(untitled)" if !( $_->{title} );
+
+		# ? "RTE"
+		# if ( exists( $_->{item} )) {
+		#	delete $_->{item};
+		# }
+
+		# entities
+		#$_->{title} =~ s/&(?!(amp|gt|lt))/&amp;/gs;
+
+		# RSS 2.0 gives a content:encoded block which contains
+		# a formatted version of the post. Ideally I'd like to
+		# use this. Both description and content:encoded have
+		# entity escapes, though.
+		my $ctag = $_->{content};
+		if ( defined( $ctag ) and ref $ctag eq "HASH" and
+			defined( $ctag->{encoded})) {
+			$_->{description} = $ctag->{encoded};
+		}
+
+		# cope with 2.0 RSS feed
+		if ( defined( $_->{guid})) {
+			# don't overwrite good links
+			$_->{link} = $_->{guid} unless $_->{link};
+		}
+
+		# cope with rdf from e.g. craigslist
+		if ( defined( $_->{link} ) ) {
+			# don't over-write good guid's
+			$_->{guid} = $_->{link} unless $_->{guid};
+		}
+		# cope with rdf from e.g. craigslist
+		if (defined( $_->{dc}->{date})) {
+			$_->{pubDate} = $_->{dc}->{date} unless $_->{pubDate};
+		}
+
+		# some of the pubDate stuff is messed up.
+		if (defined($_->{pubDate})) {
+			my $date = $_->{pubDate};
+
+			my $fixdate = UnixDate($date,"%s");
+			if (defined($fixdate)) {
+				$_->{pubDate} = strftime( "%a, %d %b %Y %H:%M:%S %z",
+					localtime( $fixdate ));
+			} else {
+				$_->{pubDate} =~ s/ (\d?\d:\d\d) / $1:00 /;
+			}
+			#printf "%s\n",$_->{pubDate};
+		} else {
+			if ($debug) {
+				printf "{pubDate} && {dc}->{date} !defined\n";
+			}
+		}
+
+		# ?
+		#$_->{description} =~ s/=&amp;quot;(.+?)&amp;quot;/="$1"/gis;
+
+		# human errors corrected
+		$_->{description} =~ s@(href|src|data)="/@$1="$site/@gs;
+		$_->{description} =~
+			s@(href|src|data)="(?!(http|ftp))@$1="$base/@gs;
+
+		# more whitespace cleansing
+		$_->{description} =~ s/^\s+//;
+		$_->{description} =~ s/\s+$//;
+	} @{$rss->{items}};
+
+	if ( @{$rss->{items}}) {
+		$rss->{charset} = $charset;
+		printf STDERR "charset %s lang %s\n",$charset,$rss->{channel}->{dc}->{language} || 'undef';
+		printf STDERR "  %d items in %s\n",$#{$rss->{items}}+1,$url;
+		handlerss($rss);
+	}
+}
+
+}
+
+sub
+handlerss
+{
+	my ($rss) = @_;
+
+	my $i = 0;
+
+	my $fromemail = $rss->{channel}->{dc}->{creator};
+	if (!defined($fromemail)) {
+		$fromemail = "r2e\@example.com";
+	}
+	my $rssfromname = handletext($rss->{charset},$rss->{channel}->{title});
+	my $recipient = "todd\@t41.fries.net";
+	printf STDERR "  ";
+	my $itemcount = 0;
+	for my $item (@{$rss->{items}}) {
+		if ($debug) {
+			printf STDERR "\n%d.",++$itemcount;
+		} else {
+			printf STDERR ".";
+		}
+		my $itemfromname = handletext($rss->{charset},$item->{dc}->{creator});
+		my $fromname;
+		if (defined($rssfromname) && length($rssfromname) > 0) {
+			$fromname = $rssfromname;
+			if ($rssfromname eq $itemfromname) {
+				$itemfromname = "";
+			}
+		}
+		if (defined($itemfromname) && length($itemfromname) > 0) {
+			$itemfromname =~ s/[[:space:]][[:space:]]*/ /gs;
+			$itemfromname =~ s/[[:space:]]*$//g;
+			$fromname .= sprintf ": %s",$itemfromname;
+		}
+		if (defined($fromname)) {
+			$fromname .= " ";
+		} else {
+			$fromname = "";
+		}
+		$fromname =~ s/[[:space:]][[:space:]]*/ /gs;
+		my $fromstr = sprintf "%s<%s>",$fromname,$fromemail;
+		if ($debug) {
+			printf STDERR "from %s\n%d.",decode('utf-8',$fromstr),$itemcount;
+		}
+
+		my $title = handletext($rss->{charset},$item->{title});
+		$title =~ s/[[:space:]][[:space:]]*/ /gs;
+		$title =~ s/^"(.*)"$/$1/g;
+		my $desc = handletext($rss->{charset},$item->{description});
+		if (compare($desc,$title) && length($title) > 65) {
+			$title = substr($title,0,55)."...";
+		}
+		if ($debug) {
+			printf STDERR "title %s\n%d.",encode('utf-8',$title),$itemcount;
+			printf STDERR " desc %s\n%d.",encode('utf-8',$desc),$itemcount;
+			printf STDERR " date %s\n%d.",$item->{pubDate},$itemcount;
+			printf STDERR " guid %s\n%d.",encode('utf-8',$item->{guid}),$itemcount;
+		}
+
+		my $mailstr = "";
+		eval {
+		$mailstr .= sprintf "From: %s\n",$fromstr;
+		$mailstr .= sprintf "To: %s\n",$recipient;
+		$mailstr .= sprintf "Subject: %s\n",$title;
+		$mailstr .= sprintf "Message-Id: <%s.%s\@r2e>\n", sha256_base64($item->{guid}), strftime("%s",gmtime);
+		$mailstr .= sprintf "Date: %s\n",$item->{pubDate};
+		$mailstr .= sprintf "User-Agent: r2e\n";
+		if (defined($item->{category})) {
+			my $tags = "";
+			if (ref($item->{category}) eq "ARRAY") {
+				foreach my $tag (@{$item->{category}}) {
+					$tags .= "$tag,";
+				}
+				$tags =~ s/,$//;
+			} else {
+				$tags = $item->{category};
+			}
+			$mailstr .= sprintf "X-RSS-Tags: %s\n", $tags;
+		}
+		$mailstr .= sprintf "\n";
+		$mailstr .= sprintf "%s\n",$desc;
+		$mailstr .= sprintf "\n";
+		};
+		if ($@) {
+			printf STDERR "failed std mailstr ops: $@\n";
+		}
+		my %vars;
+		eval {
+		if (defined($item->{link})) {
+			$vars{'URL'} = $item->{link};
+		}
+		if (defined($item->{enclosure}->{url})) {
+			$vars{'ENC'} = $item->{enclosure}->{url};
+		}
+		if (defined($item->{'http://www.georss.org/georss'}->{point})) {
+			$vars{'LOC'} = $item->{'http://www.georss.org/georss'}->{point};
+		}
+		if ($debug) {
+			if (defined($item->{guid})) {
+				$vars{'GUID'} = $item->{guid};
+			}
+		}
+		if (!defined($item->{guid})) {
+			printf STDERR "!guid\n";
+		}
+		};
+		if ($@) {
+			printf STDERR "failed var assignments: $@\n";
+		}
+		my $maxlen = 0;
+		foreach my $v (keys %vars) {
+			my $len = length($v);
+			if ($len > $maxlen) {
+				$maxlen = $len;
+			}
+		}
+		# three items first in a specific order, the rest after
+		my @order = ('URL','TAGS','ENC',keys %vars);
+		foreach my $v (@order) {
+			if (!defined($vars{$v})) {
+				next;
+			}
+			$mailstr .= sprintf "%${maxlen}s: %s\n",$v,$vars{$v};
+			$vars{$v} = undef;
+		}
+		if ($debug && 0) {
+			foreach my $key (keys %{$item}) {
+				$mailstr .= recurse_types("$i: item key $key",$item->{$key});
+			}
+		}
+		$mailstr .= "\n";
+		#$mailstr =~ s/Slashdot([^\.])/\/.$1/g;
+		if ($debug) {
+			open(MAIL,">>/dev/stdout");
+		} else {
+			open(MAIL,">>/dev/null");
+			#open(MAIL,"|/usr/sbin/sendmail $recipient");
+		}
+		printf MAIL "%s",encode('utf-8',$mailstr);
+		close(MAIL);
+		$i++;
+	}
+	printf STDERR "\n";
+}
+
+sub
+handletext
+{
+	my ($cset,$text) = @_;
+	my $r = "";
+	eval {
+		my $tdebug = 0;
+		if ($tdebug) {
+			printf STDERR "Input : '%s'\n",$text;
+		}
+		$r = parse_to_text($cset,encode('UTF-8',$text));
+		if ($tdebug) {
+		foreach my $lang (('iso-8859-1','iso-8859-2','iso-8859-16',
+				'ascii','ascii-ctrl','utf-8')) {
+			printf STDERR "Output: '%s'(%s)\n",encode($lang,$r),$lang;
+		}
+		}
+	};
+	if ($@) {
+		printf STDERR " .. parse_to_text failed! $@\n";
+	}
+	return $r; # encode('utf-8',$r);
+}
+sub
+parse_to_text
+{
+	my ($rsscset,$text) = @_;
+
+	my $f = HTML::FormatText::WithImgLinks->new($rsscset);
+	$text = $f->parse($text);
+	$f = undef;
+
+	return $text;
+}
+
+sub
+atom_to_rss
+{
+	my $feed = shift;
+	my $url = shift;
+
+	$feed =~ s/^.*?<\?xml/<?xml/gs;
+
+	my $atom = XML::Atom::Feed->new( \$feed ) or die $!;
+	my $lang = $atom->language;
+	my $rss = new XML::RSS(
+			  version => '1.0',
+			  encoding => $lang || 'UTF-8',
+			  encode_output => 1,
+		 );
+	my @links = $atom->link;
+	while ( @links ) {
+		last if $links[0]->type eq "text/html";
+		shift @links;
+	}
+
+	my $person = $atom->author();
+	my $email;
+	if (defined($person)) {
+		$email = $person->email();
+	}
+
+	$rss->channel
+	 (
+	  title => $atom->title,
+	  link => ( defined( $links[0] ) ? $links[0]->href :
+				$url ),
+	  description => $atom->subtitle,
+	  dc => {
+			 date => $atom->modified || $atom->updated,
+			 language => $atom->language,
+			 creator => $email,
+			 language => $lang,
+			}
+	 );
+
+
+	my $dc = XML::Atom::Namespace->new(dc => 'http://purl.org/dc/elements/1.1/');
+	for my $entry ( $atom->entries ) {
+		if ( !defined( $entry->content )) {
+			if ( !defined( $entry->summary )) {
+				$entry->content( "no content" );
+			} else {
+				$entry->content( $entry->summary );
+			}
+		}
+
+		my %item = (
+			title => $entry->title,
+			link => $entry->link->href,
+			description => $entry->content->body,
+			dc => {
+				date => $entry->issued || $entry->updated,
+				creator => $entry->get($dc, 'creator'),
+			},
+			);
+
+		if ( $entry->author ) {
+			$item{dc}->{creator} = $entry->author->name;
+		}
+
+		$rss->add_item(  %item );
+	}
+
+	return $rss;
+}
+sub
+recurse_types
+{
+	my ($str,$item) = @_;
+	if (!defined($item)) {
+		return sprintf("%s undef\n",$str);
+	}
+	my $type = ref($item);
+	if ($type eq "") {
+		return sprintf("%s Data('%s'[%dB])\n",$str,$item,length($item));
+	}
+	my $retstr = "";
+	if ($type eq "HASH") {
+		foreach my $hkey (keys %{$item}) {
+			$retstr .= recurse_types("$str: $hkey =>",${$item}{$hkey});
+		}
+		return $retstr;
+	}
+	if ($type eq "ARRAY") {
+		foreach my $subitem (@{$item}) {
+			$retstr .= recurse_types("$str: (",$subitem);
+		}
+		return $retstr;
+	}
+	$retstr .= "$str: unhandled type: $type\n";
+	return $retstr;
+}
+sub
+compare
+{
+	my ($str1,$str2) = @_;
+
+	$str1 =~ s/[[:space:]][[:space:]]*/ /g;
+	$str2 =~ s/[[:space:]][[:space:]]*/ /g;
+	return ($str1 eq $str2);
+}
+
+1;
+

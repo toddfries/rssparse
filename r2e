@@ -19,22 +19,34 @@ use warnings;
 
 use XML::Atom::Feed;
 use XML::Feed;
-use XML::RSS;
+use XML::Feed::Enclosure;
+use XML::Feed::Format::RSS;
+use LWP::UserAgent;
 use HTML::FormatText::WithImgLinks;
 use Encode qw( encode decode );
-use LWP::UserAgent;
 use Date::Manip;
 use POSIX qw(strftime);
 use Digest::SHA qw/sha256_base64/;
+use Data::Dumper;
 
+use XML::RSS;
 $XML::RSS::AUTO_ADD = 1; # force acceptance of extra namespaces
+
+use Encode qw( encode decode );
+
+use FDC::CleanText;
+
+if (1) {
+$XML::Feed::Format::RSS::PREFERRED_PARSER = "XML::RSS::LibXML";
+}
+$XML::Feed::MULTIPLE_ENCLOSURES=1;
 
 use OpenBSD::Getopt;
 
 our $opt_v = 0;
 getopts('v');
 
-my $debug = $opt_v;
+my $verbose = $opt_v;
 
 my $config_file = $ENV{'HOME'}."/.r2e.conf";
 my %conf;
@@ -45,6 +57,9 @@ if (open(C, $config_file)) {
 		my $line;
 		chomp($line=$_);
 		my ($var,$val) = split(/=/,$line,2);
+		if ($verbose) {
+			printf STDERR "conf{%s} = '%s'\n",$var,$val;
+		}
 		push @{$conf{$var}}, $val;
 	}
 	close(C);
@@ -57,14 +72,282 @@ if (!defined(${$conf{'XML'}}[0])) {
 }
 
 
-my $ua = new LWP::UserAgent;
+my $ua = LWP::UserAgent->new();
 $ua->agent( "R2E/0.0 " . $ua->agent );
 $ua->env_proxy();
 
-$| = 1; # Enable autoflush, really needed?
-foreach my $url (@{$conf{'XML'}}) {
-my ($site) = $url =~ m@^(.*://?[^/]+)/@;
-my ($base) = $url =~ m@^(.*://?.+)/@;
+if ($verbose) {
+	$| = 1; # Enable autoflush, to help with ordered output/debugging
+}
+foreach my $URL (@{$conf{'XML'}}) {
+	my $content;
+
+	printf STDERR "Requesting %s\n",$URL;
+
+	my $req = HTTP::Request->new(GET => $URL);
+
+	my $res = $ua->request( $req );
+
+	my $text = $res->content_ref;
+
+	my $feed;
+	$content = decode('utf-8', $$text);
+	$feed = parsefeed($URL,$content);
+
+	if (!defined($feed)) {
+		$content = decode('utf-8', FDC::CleanText::recode($text));
+		$feed = parsefeed($URL,$content);
+		if (!defined($feed)) {
+			$content = $$text;
+			$feed = parsefeed($URL,$content);
+		}
+	}
+	$content = undef;
+	if (!defined($feed)) {
+		printf STDERR "%s: !feed\n",$URL;
+		next;
+	}
+
+	my ($site) = $URL =~ m@^(.*://?[^/]+)/@;
+	my ($base) = $URL =~ m@^(.*://?.+)/@;
+
+	my $i = 0;
+
+	if (0) {
+	if (defined($feed->{atom}->{elem})) {
+		my $tmpfeed = $feed->convert('RSS', version => '2.0');
+		$feed = $tmpfeed;
+		$tmpfeed = undef;
+	}
+	}
+	my $feedauthor = $feed->author();
+	if (!($feedauthor =~ /\@/)) {
+		$feedauthor = undef;
+	}
+	my $feedemail  = $feed->{rss}->{channel}->{dc}->{creator};
+	my $feedsubject = $feed->{rss}->{channel}->{dc}->{subject};
+	my $feedfromname = handletext($feed->language,$feed->title);
+	my $recipient = "todd\@t41.fries.net";
+	printf STDERR "  ";
+	my $entrycount = 0;
+	my ($total_count,$dl_count,$found_count,$ignore_count)=(0,0,0,0);
+	if ($verbose) {
+		print STDERR recurse_dump($feed);
+		if (0) {
+		if (defined($feed->{atom}->{elem})) {
+			print STDERR recurse_dump($feed->convert('RSS', version => '2.0'));
+		}
+		}
+	}
+	for my $entry ($feed->entries) {
+		$total_count++;
+		if ($verbose) {
+			printf STDERR "\n%d.",++$entrycount;
+		} else {
+			printf STDERR ".";
+		}
+		my $guid = $entry->id();
+		if (!defined($guid)) {
+			$guid = $entry->{entry}->{guid};
+		}
+		my $link = $entry->link();
+		my $datetime = $entry->issued();
+		$datetime->set_time_zone("US/Central");
+		my $date = $datetime->strftime(
+	    		"%a, %d %b %Y %H:%M:%S %z");
+
+		
+		my $itemfromname = $entry->author() || $entry->{entry}->{dc}->{creator};
+		my $itemsubject = $entry->{entry}->{dc}->{subject} || $feedsubject;
+		my $fromemail;
+		if (defined($feedemail)) {
+			$fromemail = $feedemail;
+		} else {
+			$fromemail = "r2e\@example.com";
+		}
+		my $fromname;
+		if (defined($feedfromname) && length($feedfromname) > 0) {
+			$fromname = $feedfromname;
+			if ($feedfromname eq $itemfromname) {
+				$itemfromname = "";
+			}
+		}
+		if (defined($itemsubject) && length($itemsubject) > 0) {
+			if (length($fromname) > 0) {
+				$fromname .= "/";
+			}
+			$fromname .= $itemsubject;
+		}
+		if (defined($itemfromname) && length($itemfromname) > 0) {
+			$itemfromname =~ s/[[:space:]][[:space:]]*/ /gs;
+			$itemfromname =~ s/[[:space:]]*$//g;
+			$fromname .= ": $itemfromname";
+			if (defined($feedauthor) && $feedauthor ne $itemfromname) {
+				$fromname .= ", $feedauthor";
+			}
+		}
+		if (defined($fromname)) {
+			$fromname .= " ";
+		} else {
+			$fromname = "";
+		}
+		$fromname =~ s/[[:space:]][[:space:]]*/ /gs;
+		my $fromstr = sprintf "%s<%s>",$fromname,$fromemail;
+		if ($verbose) {
+			printf STDERR "from %s\n%d.",decode('utf-8',$fromstr),$entrycount;
+		}
+		my $body = $entry->content->body;
+
+		# make browsing the result useful in a portable way
+		$body =~ s@(href|src|data)="/@$1="$site/@gs;
+		$body =~ s@(href|src|data)="(?!(http|ftp))@$1="$base/@gs;
+
+		$body = handletext($feed->language,$body);
+
+		my $title = $entry->title;
+		#$title =~ s/^\s+(.*)\s+$//s;
+
+		# !title = !save
+		$title = "(untitled)" if ! defined($title);
+		$title = handletext($feed->language,$title);
+
+		$title =~ s/[[:space:]][[:space:]]*/ /gs;
+		$title =~ s/^"(.*)"$/$1/g;
+		if (compare($body,$title) && length($title) > 65) {
+			$title = substr($title,0,55)."...";
+		}
+		if ($verbose) {
+			printf STDERR "title %s\n%d.",encode('utf-8',$title),$entrycount;
+			printf STDERR " body %s\n%d.",encode('utf-8',$body),$entrycount;
+			printf STDERR " date %s\n%d.",$date,$entrycount;
+			printf STDERR " guid %s\n%d.",encode('utf-8',$guid),$entrycount;
+		}
+
+		my $mailstr = "";
+		eval {
+		  $mailstr .= sprintf "From: %s\n",$fromstr;
+		  $mailstr .= sprintf "To: %s\n",$recipient;
+		  $mailstr .= sprintf "Subject: %s\n",encode('utf-8',$title);
+		  $mailstr .= sprintf "Message-Id: <%s.%s\@r2e>\n", sha256_base64($guid), strftime("%s",gmtime);
+		  $mailstr .= sprintf "Date: %s\n",$date;
+		  $mailstr .= sprintf "User-Agent: r2e\n";
+
+		  my @tags = $entry->tags();
+		  if (@tags) {
+			my $tags = "";
+			foreach my $tag (@tags) {
+				$tags .= "$tag,";
+			}
+			$tags =~ s/,$//;
+			$mailstr .= sprintf "X-RSS-Tags: %s\n", $tags;
+		  }
+		  $mailstr .= sprintf "\n";
+		  $mailstr .= sprintf "%s\n",$body;
+		  $mailstr .= sprintf "\n";
+		};
+		if ($@) {
+			printf STDERR "failed std mailstr ops: $@\n";
+		}
+		my %vars;
+		eval {
+			if (defined($link)) {
+				$vars{'URL'} = $link;
+			}
+			if (defined($entry->{entry}->{enclosure})) {
+				my @encs = $entry->enclosure;
+				foreach my $enc (@encs) {
+					push @{$vars{'ENC'}},$enc;
+				}
+			}
+			$vars{'LOC'}=$entry->{'entry'}->{'http://www.georss.org/georss'}->{'point'};
+			if (!defined($vars{'LOC'})) {
+			    if (defined($entry->lat) && defined($entry->long)) {
+				$vars{'LOC'} = $entry->lat." ".$entry->long;
+			    }
+			}
+			#}
+			$vars{'GUID'} = $guid;
+		};
+		if ($@) {
+			printf STDERR "failed var assignments: $@\n";
+		}
+		my $maxlen = 0;
+		foreach my $v (keys %vars) {
+			my $len = length($v);
+			if ($len > $maxlen) {
+				$maxlen = $len;
+			}
+		}
+		# three items first in a specific order, the rest after
+		my @order = ('URL','ENC',keys %vars);
+		foreach my $v (@order) {
+			my $val = $vars{$v};
+			if ($verbose) {
+				printf STDERR "var{$v} = %s\n",$val || "undef";
+			}
+			if (!defined($val)) {
+				next;
+			}
+			if (ref($val) eq "") {
+				$mailstr .= sprintf "%${maxlen}s: %s\n",$v,$val unless length($vars{$v}) == 0;
+			} elsif (ref($val) eq "ARRAY") {
+				foreach my $a (@{$val}) {
+					if (ref($a) eq "") {
+						$mailstr .= sprintf "%${maxlen}s: %s\n",$v,$a unless length($a) == 0;
+					} elsif (ref($a) eq "XML::Feed::Enclosure") {
+						$mailstr .= sprintf "%${maxlen}s: %s\n",$v,$a->url unless length($a->url) == 0;
+					}
+				}
+			} else {
+				printf STDERR "%s: unhandled ENC type %s\n",ref($val);
+			}
+			$vars{$v} = undef;
+		}
+		if ($verbose) {
+			print STDERR recurse_dump($entry);
+		}
+		$mailstr .= "\n";
+		if ($verbose) {
+			open(MAIL,">>/dev/stdout");
+		} else {
+			open(MAIL,">>/dev/stdout");
+			#open(MAIL,"|/usr/sbin/sendmail $recipient");
+		}
+		printf MAIL "%s",encode('utf-8',$mailstr);
+		close(MAIL);
+		$i++;
+	}
+	printf STDERR "\n";
+}
+
+sub
+parsefeed
+{
+	my ($URL,$content) = @_;
+	my $feed;
+	eval {
+		$feed = XML::Feed->parse(\$content);
+	};
+	if ($@) {
+		printf STDERR "%s: $@\n",$URL;
+		if (defined(XML::Feed->errstr)) {
+			printf STDERR "%s: %s\n",$URL,XML::Feed->errstr;
+		}
+		return undef;
+	}
+	if ($feed->author() =~ /\@/) {
+		return $feed;
+	}
+	my $atom = XML::Atom::Feed->new(\$content);
+	my $person = $atom->author();
+	if (defined($person)) {
+		$feed->{rss}->{channel}->{dc}->{creator} = $person->email();
+	}
+	return $feed;
+}
+
+=pod
+if (0) {
 my $rss;
 printf STDERR "Retrieving %s\n",$url;
 my $req = HTTP::Request->new(GET => $url);
@@ -140,7 +423,7 @@ if (!defined($preparsed)) {
 	eval {
 		$rss = XML::RSS->new( version => "1.0", encoding => $charset || 'UTF-8',
 			encode_output => 1);
-		if ($debug) {
+		if ($verbose) {
 			printf STDERR "\n\n=----- Content-----=\n\n";
 			printf STDERR "%s\n",$content;
 		}
@@ -167,81 +450,9 @@ eval {
 	# delete $rss->{image}->{url} if defined( $rss->{image} );
 
 	# Cleanse
-	map {
-		# trim title
-		$_->{title} =~ s/\s+$//s;
-		$_->{title} =~ s/^\s+$//s;
-
-		# !title = !save
-		$_->{title} = "(untitled)" if !( $_->{title} );
-
-		# ? "RTE"
-		# if ( exists( $_->{item} )) {
-		#	delete $_->{item};
-		# }
-
-		# entities
-		#$_->{title} =~ s/&(?!(amp|gt|lt))/&amp;/gs;
-
-		# RSS 2.0 gives a content:encoded block which contains
-		# a formatted version of the post. Ideally I'd like to
-		# use this. Both description and content:encoded have
-		# entity escapes, though.
-		my $ctag = $_->{content};
-		if ( defined( $ctag ) and ref $ctag eq "HASH" and
-			defined( $ctag->{encoded})) {
-			$_->{description} = $ctag->{encoded};
-		}
-
-		# cope with 2.0 RSS feed
-		if ( defined( $_->{guid})) {
-			# don't overwrite good links
-			$_->{link} = $_->{guid} unless $_->{link};
-		}
-
-		# cope with rdf from e.g. craigslist
-		if ( defined( $_->{link} ) ) {
-			# don't over-write good guid's
-			$_->{guid} = $_->{link} unless $_->{guid};
-		}
-		# cope with rdf from e.g. craigslist
-		if (defined( $_->{dc}->{date})) {
-			$_->{pubDate} = $_->{dc}->{date} unless $_->{pubDate};
-		}
-
-		# some of the pubDate stuff is messed up.
-		if (defined($_->{pubDate})) {
-			my $date = $_->{pubDate};
-
-			my $fixdate = UnixDate($date,"%s");
-			if (defined($fixdate)) {
-				$_->{pubDate} = strftime( "%a, %d %b %Y %H:%M:%S %z",
-					localtime( $fixdate ));
-			} else {
-				$_->{pubDate} =~ s/ (\d?\d:\d\d) / $1:00 /;
-			}
-			#printf "%s\n",$_->{pubDate};
-		} else {
-			if ($debug) {
-				printf "{pubDate} && {dc}->{date} !defined\n";
-			}
-		}
-
-		# ?
-		#$_->{description} =~ s/=&amp;quot;(.+?)&amp;quot;/="$1"/gis;
-
-		# human errors corrected
-		$_->{description} =~ s@(href|src|data)="/@$1="$site/@gs;
-		$_->{description} =~
-			s@(href|src|data)="(?!(http|ftp))@$1="$base/@gs;
-
-		# more whitespace cleansing
-		$_->{description} =~ s/^\s+//;
-		$_->{description} =~ s/\s+$//;
-	} @{$rss->{items}};
 
 	if ( @{$rss->{items}}) {
-		$rss->{charset} = $charset;
+		$feed->language = $charset;
 		printf STDERR "charset %s lang %s\n",$charset,$rss->{channel}->{dc}->{language} || 'undef';
 		printf STDERR "  %d items in %s\n",$#{$rss->{items}}+1,$url;
 		handlerss($rss);
@@ -249,151 +460,8 @@ eval {
 }
 
 }
+=cut
 
-sub
-handlerss
-{
-	my ($rss) = @_;
-
-	my $i = 0;
-
-	my $fromemail = $rss->{channel}->{dc}->{creator};
-	if (!defined($fromemail)) {
-		$fromemail = "r2e\@example.com";
-	}
-	my $rssfromname = handletext($rss->{charset},$rss->{channel}->{title});
-	my $recipient = "todd\@t41.fries.net";
-	printf STDERR "  ";
-	my $itemcount = 0;
-	for my $item (@{$rss->{items}}) {
-		if ($debug) {
-			printf STDERR "\n%d.",++$itemcount;
-		} else {
-			printf STDERR ".";
-		}
-		my $itemfromname = handletext($rss->{charset},$item->{dc}->{creator});
-		my $fromname;
-		if (defined($rssfromname) && length($rssfromname) > 0) {
-			$fromname = $rssfromname;
-			if ($rssfromname eq $itemfromname) {
-				$itemfromname = "";
-			}
-		}
-		if (defined($itemfromname) && length($itemfromname) > 0) {
-			$itemfromname =~ s/[[:space:]][[:space:]]*/ /gs;
-			$itemfromname =~ s/[[:space:]]*$//g;
-			$fromname .= sprintf ": %s",$itemfromname;
-		}
-		if (defined($fromname)) {
-			$fromname .= " ";
-		} else {
-			$fromname = "";
-		}
-		$fromname =~ s/[[:space:]][[:space:]]*/ /gs;
-		my $fromstr = sprintf "%s<%s>",$fromname,$fromemail;
-		if ($debug) {
-			printf STDERR "from %s\n%d.",decode('utf-8',$fromstr),$itemcount;
-		}
-
-		my $title = handletext($rss->{charset},$item->{title});
-		$title =~ s/[[:space:]][[:space:]]*/ /gs;
-		$title =~ s/^"(.*)"$/$1/g;
-		my $desc = handletext($rss->{charset},$item->{description});
-		if (compare($desc,$title) && length($title) > 65) {
-			$title = substr($title,0,55)."...";
-		}
-		if ($debug) {
-			printf STDERR "title %s\n%d.",encode('utf-8',$title),$itemcount;
-			printf STDERR " desc %s\n%d.",encode('utf-8',$desc),$itemcount;
-			printf STDERR " date %s\n%d.",$item->{pubDate},$itemcount;
-			printf STDERR " guid %s\n%d.",encode('utf-8',$item->{guid}),$itemcount;
-		}
-
-		my $mailstr = "";
-		eval {
-		$mailstr .= sprintf "From: %s\n",$fromstr;
-		$mailstr .= sprintf "To: %s\n",$recipient;
-		$mailstr .= sprintf "Subject: %s\n",$title;
-		$mailstr .= sprintf "Message-Id: <%s.%s\@r2e>\n", sha256_base64($item->{guid}), strftime("%s",gmtime);
-		$mailstr .= sprintf "Date: %s\n",$item->{pubDate};
-		$mailstr .= sprintf "User-Agent: r2e\n";
-		if (defined($item->{category})) {
-			my $tags = "";
-			if (ref($item->{category}) eq "ARRAY") {
-				foreach my $tag (@{$item->{category}}) {
-					$tags .= "$tag,";
-				}
-				$tags =~ s/,$//;
-			} else {
-				$tags = $item->{category};
-			}
-			$mailstr .= sprintf "X-RSS-Tags: %s\n", $tags;
-		}
-		$mailstr .= sprintf "\n";
-		$mailstr .= sprintf "%s\n",$desc;
-		$mailstr .= sprintf "\n";
-		};
-		if ($@) {
-			printf STDERR "failed std mailstr ops: $@\n";
-		}
-		my %vars;
-		eval {
-		if (defined($item->{link})) {
-			$vars{'URL'} = $item->{link};
-		}
-		if (defined($item->{enclosure}->{url})) {
-			$vars{'ENC'} = $item->{enclosure}->{url};
-		}
-		if (defined($item->{'http://www.georss.org/georss'}->{point})) {
-			$vars{'LOC'} = $item->{'http://www.georss.org/georss'}->{point};
-		}
-		if ($debug) {
-			if (defined($item->{guid})) {
-				$vars{'GUID'} = $item->{guid};
-			}
-		}
-		if (!defined($item->{guid})) {
-			printf STDERR "!guid\n";
-		}
-		};
-		if ($@) {
-			printf STDERR "failed var assignments: $@\n";
-		}
-		my $maxlen = 0;
-		foreach my $v (keys %vars) {
-			my $len = length($v);
-			if ($len > $maxlen) {
-				$maxlen = $len;
-			}
-		}
-		# three items first in a specific order, the rest after
-		my @order = ('URL','TAGS','ENC',keys %vars);
-		foreach my $v (@order) {
-			if (!defined($vars{$v})) {
-				next;
-			}
-			$mailstr .= sprintf "%${maxlen}s: %s\n",$v,$vars{$v};
-			$vars{$v} = undef;
-		}
-		if ($debug && 0) {
-			foreach my $key (keys %{$item}) {
-				$mailstr .= recurse_types("$i: item key $key",$item->{$key});
-			}
-		}
-		$mailstr .= "\n";
-		#$mailstr =~ s/Slashdot([^\.])/\/.$1/g;
-		if ($debug) {
-			open(MAIL,">>/dev/stdout");
-		} else {
-			open(MAIL,">>/dev/null");
-			#open(MAIL,"|/usr/sbin/sendmail $recipient");
-		}
-		printf MAIL "%s",encode('utf-8',$mailstr);
-		close(MAIL);
-		$i++;
-	}
-	printf STDERR "\n";
-}
 
 sub
 handletext
@@ -431,75 +499,17 @@ parse_to_text
 }
 
 sub
-atom_to_rss
+recurse_dump
 {
-	my $feed = shift;
-	my $url = shift;
-
-	$feed =~ s/^.*?<\?xml/<?xml/gs;
-
-	my $atom = XML::Atom::Feed->new( \$feed ) or die $!;
-	my $lang = $atom->language;
-	my $rss = new XML::RSS(
-			  version => '1.0',
-			  encoding => $lang || 'UTF-8',
-			  encode_output => 1,
-		 );
-	my @links = $atom->link;
-	while ( @links ) {
-		last if $links[0]->type eq "text/html";
-		shift @links;
-	}
-
-	my $person = $atom->author();
-	my $email;
-	if (defined($person)) {
-		$email = $person->email();
-	}
-
-	$rss->channel
-	 (
-	  title => $atom->title,
-	  link => ( defined( $links[0] ) ? $links[0]->href :
-				$url ),
-	  description => $atom->subtitle,
-	  dc => {
-			 date => $atom->modified || $atom->updated,
-			 language => $atom->language,
-			 creator => $email,
-			 language => $lang,
-			}
-	 );
-
-
-	my $dc = XML::Atom::Namespace->new(dc => 'http://purl.org/dc/elements/1.1/');
-	for my $entry ( $atom->entries ) {
-		if ( !defined( $entry->content )) {
-			if ( !defined( $entry->summary )) {
-				$entry->content( "no content" );
-			} else {
-				$entry->content( $entry->summary );
-			}
-		}
-
-		my %item = (
-			title => $entry->title,
-			link => $entry->link->href,
-			description => $entry->content->body,
-			dc => {
-				date => $entry->issued || $entry->updated,
-				creator => $entry->get($dc, 'creator'),
-			},
-			);
-
-		if ( $entry->author ) {
-			$item{dc}->{creator} = $entry->author->name;
-		}
-
-		$rss->add_item(  %item );
-	}
-
-	return $rss;
+	my ($item) = @_;
+	my $d = Data::Dumper->new([$item]);
+	$d->Purity(1);
+	$d->Terse(0);
+	$d->Deepcopy(1);
+	$d->Indent(2);
+	$d->Sortkeys(1);
+	#$d->Deparse(1);
+	return $d->Dump();
 }
 sub
 recurse_types
@@ -525,6 +535,17 @@ recurse_types
 		}
 		return $retstr;
 	}
+	if ($type eq "REF") {
+		$retstr .= recurse_types("$str: REF",$$item);
+		return $retstr;
+	}
+	my %test = $item;
+	if (keys %test) {
+		foreach my $hkey (keys %test) {
+			$retstr .= recurse_types("${str}"."::"."$hkey =>",$test{$hkey});
+		}
+		return $retstr;
+	}
 	$retstr .= "$str: unhandled type: $type\n";
 	return $retstr;
 }
@@ -539,4 +560,3 @@ compare
 }
 
 1;
-
