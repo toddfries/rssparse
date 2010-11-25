@@ -22,6 +22,8 @@ use HTML::TokeParser;
 
 use Encode;
 
+use FDC::CleanText;
+
 sub
 new
 {
@@ -686,32 +688,8 @@ parse
 	if ($utfdebug) {
 		printf STDERR "\noutput: before(plain vs utf-8) vs after(plain vs utf8):\n'%s'\n'%s'\n",$output,encode('utf-8',$output);
 	}
-	# 4 char sequences
-	#$output =~ s/\xc3\x83\c2\a9/e/g;
-	$output =~ s/\xc3\x83\xc2\xa9/e/g;
-	$output =~ s/\xc3\x83\xc2\xa0/a/g;
-	# 3 char sequences
-	$output =~ s/â\x80\x93/-/g; 
-	$output =~ s/â\x80\x99/'/g; 
-	$output =~ s/â\x80\x9c/"/g; 
-	$output =~ s/â\x80\x9d/"/g; 
-	$output =~ s/â\x80¦/.../g;
-	$output =~ s/\xc3¢Â//g;
-	$output =~ s/\x80Â¦//g;
-	$output =~ s/\x80Â\x93/-/g;
-	$output =~ s/\x80Â\x94/--/g;
-	$output =~ s/\x80Â\x99/'/g;
-	# 2 char sequences
-	$output =~ s/\xA0\xAD/ /g;
-	$output =~ s/\xc3(\x82|\x83)//g;
-	$output =~ s/Â£/EUR/g;
-	# 1 char sequences
-	$output =~ s/\x94/"/g;
-	$output =~ s/\x94/"/g; 
-	$output =~ s/\x85/ /g;
-	$output =~ s/\x92/'/g;
-	$output =~ s/\x93/"/g; 
-	$output =~ s/\x96/-/g; 
+
+	$output = FDC::CleanText::recode(\$output);
 	if ($utfdebug) {
 		printf STDERR "'%s'\n'%s'\n",$output,encode('utf-8',$output);
 	}
@@ -785,6 +763,9 @@ ref_filter
 	my ($self,$reference) = @_;
 	foreach my $filter (("doubleclick.net")) {
 		if ($reference =~ m/(http|ftp):\/\/[^\/]+$filter\//) {
+			return 0;
+		}
+		if ($reference =~ m/javascript:/) {
 			return 0;
 		}
 	}
