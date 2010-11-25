@@ -282,7 +282,7 @@ handlerss
 		if (defined($itemfromname) && length($itemfromname) > 0) {
 			$itemfromname =~ s/[[:space:]][[:space:]]*/ /gs;
 			$itemfromname =~ s/[[:space:]]*$//g;
-			$fromname .= sprintf "/%s",$itemfromname;
+			$fromname .= sprintf ": %s",$itemfromname;
 		}
 		if (defined($fromname)) {
 			$fromname .= " ";
@@ -299,8 +299,8 @@ handlerss
 		$title =~ s/[[:space:]][[:space:]]*/ /gs;
 		$title =~ s/^"(.*)"$/$1/g;
 		my $desc = handletext($rss->{charset},$item->{description});
-		if (compare($desc,$title) && length($title) > 80) {
-			$title = substr($title,0,65)."...";
+		if (compare($desc,$title) && length($title) > 65) {
+			$title = substr($title,0,55)."...";
 		}
 		if ($debug) {
 			printf STDERR "title %s\n%d.",encode('utf-8',$title),$itemcount;
@@ -375,7 +375,7 @@ handlerss
 			$mailstr .= sprintf "%${maxlen}s: %s\n",$v,$vars{$v};
 			$vars{$v} = undef;
 		}
-		if ($debug) {
+		if ($debug && 0) {
 			foreach my $key (keys %{$item}) {
 				$mailstr .= recurse_types("$i: item key $key",$item->{$key});
 			}
@@ -506,11 +506,11 @@ recurse_types
 {
 	my ($str,$item) = @_;
 	if (!defined($item)) {
-		return (sprintf("%s undef\n",$str));
+		return sprintf("%s undef\n",$str);
 	}
 	my $type = ref($item);
 	if ($type eq "") {
-		return (sprintf("%s Data('%s'[%dB])\n",$str,$item,length($item)));
+		return sprintf("%s Data('%s'[%dB])\n",$str,$item,length($item));
 	}
 	my $retstr = "";
 	if ($type eq "HASH") {
