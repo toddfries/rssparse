@@ -385,7 +385,7 @@ my %charmap = (
 	8250 => '>',
 	8254 => "'-",
 	8260 => '/',
-	8364 => 'EUR',
+	8364 => 'EUR', # '£',
 	8465 => 'Im',
 	8472 => 'P',
 	8476 => 'Re',
@@ -574,7 +574,6 @@ parse
 	my $cache;
 	my $footnotefmt;
 	if (@urls) {
-		$f .= "\nReferences:\n";
 		$i = 0;
 		@{$cache} = ();
 		foreach my $u (@urls) {
@@ -582,6 +581,7 @@ parse
 				$self->getoffset($u,$cache);
 			}
 		}
+		$f .= "\nReferences:\n" if $#{$cache} > -1;
 		$footnotefmt = sprintf "[%%%dd] %%s\n",$self->poweroften($#{$cache});
 		@{$cache} = ();
 		foreach my $u (@urls) {
@@ -600,13 +600,13 @@ parse
 		}
 	}
 	if (@imgs) {
-		$f .= "\nImages:\n";
 		@{$cache} = ();
 		foreach my $img (@imgs) {
 			if ($self->ref_filter($img)) {
 				$self->getoffset($img,$cache);
 			}
 		}
+		$f .= "\nImages:\n" if $#{$cache} > -1;
 		$footnotefmt = sprintf "{%%%dd} %%s\n",$self->poweroften($#{$cache});
 		$i = 0;
 		@{$cache} = ();
@@ -674,21 +674,47 @@ parse
 		#my $output = encode('us-ascii', $text_string);
 		# â
 	}
-	#printf STDERR "output: before(plain vs utf-8) vs after(plain vs utf8):\n'%s'\n'%s'\n",$output,encode('utf-8',$output);
+	my $utfdebug = 0;
+	foreach my $debugline ((
+		#'odd to complain of a sense',
+		#'bid to compete with Apple',
+	)) {
+		if ($output =~ /$debugline/) {
+			$utfdebug = 1;
+		}
+	}
+	if ($utfdebug) {
+		printf STDERR "\noutput: before(plain vs utf-8) vs after(plain vs utf8):\n'%s'\n'%s'\n",$output,encode('utf-8',$output);
+	}
+	# 4 char sequences
+	#$output =~ s/\xc3\x83\c2\a9/e/g;
+	$output =~ s/\xc3\x83\xc2\xa9/e/g;
+	$output =~ s/\xc3\x83\xc2\xa0/a/g;
+	# 3 char sequences
 	$output =~ s/â\x80\x93/-/g; 
 	$output =~ s/â\x80\x99/'/g; 
 	$output =~ s/â\x80\x9c/"/g; 
 	$output =~ s/â\x80\x9d/"/g; 
 	$output =~ s/â\x80¦/.../g;
+	$output =~ s/\xc3¢Â//g;
+	$output =~ s/\x80Â¦//g;
+	$output =~ s/\x80Â\x93/-/g;
+	$output =~ s/\x80Â\x94/--/g;
+	$output =~ s/\x80Â\x99/'/g;
+	# 2 char sequences
 	$output =~ s/\xA0\xAD/ /g;
+	$output =~ s/\xc3(\x82|\x83)//g;
+	$output =~ s/Â£/EUR/g;
+	# 1 char sequences
 	$output =~ s/\x94/"/g;
 	$output =~ s/\x94/"/g; 
 	$output =~ s/\x85/ /g;
 	$output =~ s/\x92/'/g;
 	$output =~ s/\x93/"/g; 
 	$output =~ s/\x96/-/g; 
-	#printf STDERR "'%s'\n'%s'\n",$output,encode('utf-8',$output);
-	#$output = decode('utf-8',$output);
+	if ($utfdebug) {
+		printf STDERR "'%s'\n'%s'\n",$output,encode('utf-8',$output);
+	}
 
 	$output =~ s/[[:space:]]$//g;
 	$output =~ s/^"[ \t]+/"/g;
