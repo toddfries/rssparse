@@ -17,10 +17,11 @@
 use strict;
 use warnings;
 
+use XML::Atom::Feed;
 use XML::Feed;
+use XML::RSS;
 use HTML::FormatText::WithImgLinks;
 use Encode qw( encode decode );
-use XML::RSS;
 use LWP::UserAgent;
 use Date::Manip;
 use POSIX qw(strftime);
@@ -35,21 +36,33 @@ getopts('v');
 
 my $debug = $opt_v;
 
+my $config_file = $ENV{'HOME'}."/.r2e.conf";
+my %conf;
+if (open(C, $config_file)) {
+	while (<C>) {
+		next if /^#/;
+		last if /^END$/;
+		my $line;
+		chomp($line=$_);
+		my ($var,$val) = split(/=/,$line,2);
+		push @{$conf{$var}}, $val;
+	}
+	close(C);
+} else {
+	die "Failed to open config $config_file: $!";
+}
+
+if (!defined(${$conf{'XML'}}[0])) {
+	die "Failed to find XML in config $config_file";
+}
+
+
 my $ua = new LWP::UserAgent;
 $ua->agent( "R2E/0.0 " . $ua->agent );
 $ua->env_proxy();
 
 $| = 1; # Enable autoflush, really needed?
-foreach my $url ((
-#	'http://twitter.com/statuses/user_timeline/40972132.rss',
-#	'http://rss.ireport.com/feeds/oncnn.rss',
-#	'http://feeds.feedburner.com/myobsaidwhat',
-#	'http://rss.slashdot.org/Slashdot/slashdot'
-	'http://127.0.0.1/rss/dr_twitter.xml',
-	'http://127.0.0.1/rss/myobsaid.xml',
-	'http://127.0.0.1/rss/cnn.xml',
-	'http://127.0.0.1/rss/slashdot.xml',
-)) {
+foreach my $url (@{$conf{'XML'}}) {
 my ($site) = $url =~ m@^(.*://?[^/]+)/@;
 my ($base) = $url =~ m@^(.*://?.+)/@;
 my $rss;
@@ -127,6 +140,10 @@ if (!defined($preparsed)) {
 	eval {
 		$rss = XML::RSS->new( version => "1.0", encoding => $charset || 'UTF-8',
 			encode_output => 1);
+		if ($debug) {
+			printf STDERR "\n\n=----- Content-----=\n\n";
+			printf STDERR "%s\n",$content;
+		}
 		if (!$rss->parse($content)) {
 			my $err = "";
 			$err = $@ if $@;
@@ -182,6 +199,16 @@ eval {
 			$_->{link} = $_->{guid} unless $_->{link};
 		}
 
+		# cope with rdf from e.g. craigslist
+		if ( defined( $_->{link} ) ) {
+			# don't over-write good guid's
+			$_->{guid} = $_->{link} unless $_->{guid};
+		}
+		# cope with rdf from e.g. craigslist
+		if (defined( $_->{dc}->{date})) {
+			$_->{pubDate} = $_->{dc}->{date} unless $_->{pubDate};
+		}
+
 		# some of the pubDate stuff is messed up.
 		if (defined($_->{pubDate})) {
 			my $date = $_->{pubDate};
@@ -194,6 +221,10 @@ eval {
 				$_->{pubDate} =~ s/ (\d?\d:\d\d) / $1:00 /;
 			}
 			#printf "%s\n",$_->{pubDate};
+		} else {
+			if ($debug) {
+				printf "{pubDate} && {dc}->{date} !defined\n";
+			}
 		}
 
 		# ?
@@ -273,6 +304,9 @@ handlerss
 		}
 		if ($debug) {
 			printf STDERR "title %s\n%d.",encode('utf-8',$title),$itemcount;
+			printf STDERR " desc %s\n%d.",encode('utf-8',$desc),$itemcount;
+			printf STDERR " date %s\n%d.",$item->{pubDate},$itemcount;
+			printf STDERR " guid %s\n%d.",encode('utf-8',$item->{guid}),$itemcount;
 		}
 
 		my $mailstr = "";
@@ -318,6 +352,9 @@ handlerss
 				$vars{'GUID'} = $item->{guid};
 			}
 		}
+		if (!defined($item->{guid})) {
+			printf STDERR "!guid\n";
+		}
 		};
 		if ($@) {
 			printf STDERR "failed var assignments: $@\n";
@@ -348,7 +385,8 @@ handlerss
 		if ($debug) {
 			open(MAIL,">>/dev/stdout");
 		} else {
-			open(MAIL,"|/usr/sbin/sendmail $recipient");
+			open(MAIL,">>/dev/null");
+			#open(MAIL,"|/usr/sbin/sendmail $recipient");
 		}
 		printf MAIL "%s",encode('utf-8',$mailstr);
 		close(MAIL);
@@ -467,6 +505,9 @@ sub
 recurse_types
 {
 	my ($str,$item) = @_;
+	if (!defined($item)) {
+		return (sprintf("%s undef\n",$str));
+	}
 	my $type = ref($item);
 	if ($type eq "") {
 		return (sprintf("%s Data('%s'[%dB])\n",$str,$item,length($item)));
@@ -498,3 +539,4 @@ compare
 }
 
 1;
+
