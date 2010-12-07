@@ -36,9 +36,7 @@ use Encode qw( encode decode );
 
 use FDC::CleanText;
 
-if (1) {
 $XML::Feed::Format::RSS::PREFERRED_PARSER = "XML::RSS::LibXML";
-}
 $XML::Feed::MULTIPLE_ENCLOSURES=1;
 
 use OpenBSD::Getopt;
@@ -121,8 +119,13 @@ foreach my $URL (@{$conf{'XML'}}) {
 	}
 	}
 	my $feedauthor = $feed->author();
-	if (!($feedauthor =~ /\@/)) {
-		$feedauthor = undef;
+	if (!defined($feedauthor)) {
+		$feedauthor = $feed->{rss}->{channel}->{dc}->{creator};
+	}
+	if (defined($feedauthor)) {
+		if (!($feedauthor =~ /\@/)) {
+			$feedauthor = undef;
+		}
 	}
 	my $feedemail  = $feed->{rss}->{channel}->{dc}->{creator};
 	my $feedsubject = $feed->{rss}->{channel}->{dc}->{subject};
@@ -135,7 +138,8 @@ foreach my $URL (@{$conf{'XML'}}) {
 		print STDERR recurse_dump($feed);
 		if (0) {
 		if (defined($feed->{atom}->{elem})) {
-			print STDERR recurse_dump($feed->convert('RSS', version => '2.0'));
+			print STDERR recurse_dump($feed->convert('RSS',
+			    version => '2.0'));
 		}
 		}
 	}
@@ -150,15 +154,17 @@ foreach my $URL (@{$conf{'XML'}}) {
 		if (!defined($guid)) {
 			$guid = $entry->{entry}->{guid};
 		}
+		my $guid_sha = sha256_base64($guid);
 		my $link = $entry->link();
 		my $datetime = $entry->issued();
 		$datetime->set_time_zone("US/Central");
 		my $date = $datetime->strftime(
 	    		"%a, %d %b %Y %H:%M:%S %z");
-
 		
-		my $itemfromname = $entry->author() || $entry->{entry}->{dc}->{creator};
-		my $itemsubject = $entry->{entry}->{dc}->{subject} || $feedsubject;
+		my $itemfromname = $entry->author() ||
+			$entry->{entry}->{dc}->{creator};
+		my $itemsubject = $entry->{entry}->{dc}->{subject} ||
+			$feedsubject;
 		my $fromemail;
 		if (defined($feedemail)) {
 			$fromemail = $feedemail;
@@ -168,8 +174,10 @@ foreach my $URL (@{$conf{'XML'}}) {
 		my $fromname;
 		if (defined($feedfromname) && length($feedfromname) > 0) {
 			$fromname = $feedfromname;
-			if ($feedfromname eq $itemfromname) {
-				$itemfromname = "";
+			if (defined($itemfromname)) {
+				if ($feedfromname eq $itemfromname) {
+					$itemfromname = "";
+				}
 			}
 		}
 		if (defined($itemsubject) && length($itemsubject) > 0) {
@@ -182,7 +190,8 @@ foreach my $URL (@{$conf{'XML'}}) {
 			$itemfromname =~ s/[[:space:]][[:space:]]*/ /gs;
 			$itemfromname =~ s/[[:space:]]*$//g;
 			$fromname .= ": $itemfromname";
-			if (defined($feedauthor) && $feedauthor ne $itemfromname) {
+			if (defined($feedauthor) &&
+			    $feedauthor ne $itemfromname) {
 				$fromname .= ", $feedauthor";
 			}
 		}
@@ -194,7 +203,8 @@ foreach my $URL (@{$conf{'XML'}}) {
 		$fromname =~ s/[[:space:]][[:space:]]*/ /gs;
 		my $fromstr = sprintf "%s<%s>",$fromname,$fromemail;
 		if ($verbose) {
-			printf STDERR "from %s\n%d.",decode('utf-8',$fromstr),$entrycount;
+			printf STDERR "from %s\n%d.",decode('utf-8',$fromstr),
+			    $entrycount;
 		}
 		my $body = $entry->content->body;
 
@@ -216,37 +226,13 @@ foreach my $URL (@{$conf{'XML'}}) {
 		if (compare($body,$title) && length($title) > 65) {
 			$title = substr($title,0,55)."...";
 		}
-		if ($verbose) {
-			printf STDERR "title %s\n%d.",encode('utf-8',$title),$entrycount;
-			printf STDERR " body %s\n%d.",encode('utf-8',$body),$entrycount;
-			printf STDERR " date %s\n%d.",$date,$entrycount;
-			printf STDERR " guid %s\n%d.",encode('utf-8',$guid),$entrycount;
-		}
-
-		my $mailstr = "";
-		eval {
-		  $mailstr .= sprintf "From: %s\n",$fromstr;
-		  $mailstr .= sprintf "To: %s\n",$recipient;
-		  $mailstr .= sprintf "Subject: %s\n",encode('utf-8',$title);
-		  $mailstr .= sprintf "Message-Id: <%s.%s\@r2e>\n", sha256_base64($guid), strftime("%s",gmtime);
-		  $mailstr .= sprintf "Date: %s\n",$date;
-		  $mailstr .= sprintf "User-Agent: r2e\n";
-
-		  my @tags = $entry->tags();
-		  if (@tags) {
-			my $tags = "";
+		my @tags = $entry->tags();
+		my $tags = "";
+		if (@tags) {
 			foreach my $tag (@tags) {
 				$tags .= "$tag,";
 			}
 			$tags =~ s/,$//;
-			$mailstr .= sprintf "X-RSS-Tags: %s\n", $tags;
-		  }
-		  $mailstr .= sprintf "\n";
-		  $mailstr .= sprintf "%s\n",$body;
-		  $mailstr .= sprintf "\n";
-		};
-		if ($@) {
-			printf STDERR "failed std mailstr ops: $@\n";
 		}
 		my %vars;
 		eval {
@@ -259,17 +245,50 @@ foreach my $URL (@{$conf{'XML'}}) {
 					push @{$vars{'ENC'}},$enc;
 				}
 			}
-			$vars{'LOC'}=$entry->{'entry'}->{'http://www.georss.org/georss'}->{'point'};
+			$vars{'LOC'}=$entry->{'entry'}->{
+				'http://www.georss.org/georss'}->{'point'};
 			if (!defined($vars{'LOC'})) {
-			    if (defined($entry->lat) && defined($entry->long)) {
-				$vars{'LOC'} = $entry->lat." ".$entry->long;
-			    }
+				if (defined($entry->lat) &&
+				    defined($entry->long)) {
+					$vars{'LOC'}  = $entry->lat." ";
+					$vars{'LOC'} .= $entry->long;
+				}
 			}
-			#}
 			$vars{'GUID'} = $guid;
 		};
 		if ($@) {
 			printf STDERR "failed var assignments: $@\n";
+		}
+		if ($verbose) {
+			printf STDERR "title %s\n%d.",encode('utf-8',$title),
+			    $entrycount;
+			printf STDERR " body %s\n%d.",encode('utf-8',$body),
+			    $entrycount;
+			printf STDERR " date %s\n%d.",$date,
+			    $entrycount;
+			printf STDERR " guid %s\n%d.",encode('utf-8',$guid),
+			    $entrycount;
+		}
+
+		my $mailstr = "";
+		eval {
+		  $mailstr .= sprintf "From: %s\n",$fromstr;
+		  $mailstr .= sprintf "To: %s\n",$recipient;
+		  $mailstr .= sprintf "Subject: %s\n",encode('utf-8',$title);
+		  $mailstr .= sprintf "Message-Id: <%s.%s\@r2e>\n",
+			$guid_sha, strftime("%s",gmtime);
+		  $mailstr .= sprintf "Date: %s\n",$date;
+		  $mailstr .= sprintf "User-Agent: r2e\n";
+
+		  if ($tags) {
+			$mailstr .= sprintf "X-RSS-Tags: %s\n", $tags;
+		  }
+		  $mailstr .= sprintf "\n";
+		  $mailstr .= sprintf "%s\n",$body;
+		  $mailstr .= sprintf "\n";
+		};
+		if ($@) {
+			printf STDERR "failed std mailstr ops: $@\n";
 		}
 		my $maxlen = 0;
 		foreach my $v (keys %vars) {
@@ -289,17 +308,42 @@ foreach my $URL (@{$conf{'XML'}}) {
 				next;
 			}
 			if (ref($val) eq "") {
-				$mailstr .= sprintf "%${maxlen}s: %s\n",$v,$val unless length($vars{$v}) == 0;
+				if (length($vars{$v}) > 0) {
+					$mailstr .= sprintf
+					    "%${maxlen}s: %s\n", $v,$val;
+				}
 			} elsif (ref($val) eq "ARRAY") {
 				foreach my $a (@{$val}) {
 					if (ref($a) eq "") {
-						$mailstr .= sprintf "%${maxlen}s: %s\n",$v,$a unless length($a) == 0;
-					} elsif (ref($a) eq "XML::Feed::Enclosure") {
-						$mailstr .= sprintf "%${maxlen}s: %s\n",$v,$a->url unless length($a->url) == 0;
+						if (length($a) > 0) {
+							$mailstr .= sprintf
+							    "%${maxlen}s: %s\n",
+							    $v,$a;
+						}
+					} elsif (ref($a) eq
+					    "XML::Feed::Enclosure") {
+						if (length($a->url) > 0) {
+							$mailstr .= sprintf
+							    "%${maxlen}s: %s\n",
+							    $v,$a->url;
+						}
 					}
 				}
+			} elsif (ref($val) eq
+			    "XML::RSS::LibXML::MagicElement") {
+				my @attr = $val->attributes();
+				foreach my $att (@attr) {
+					if ($att eq "isPermlink") {
+						next;
+					}
+					printf STDERR
+					    "%s: unhandled ME attr %s\n",
+					    $v,$att;
+				}
 			} else {
-				printf STDERR "%s: unhandled ENC type %s\n",ref($val);
+				printf STDERR "%s: unhandled ENC type %s\n",
+				    $v,ref($val);
+				printf STDERR "%s",recurse_dump($val);
 			}
 			$vars{$v} = undef;
 		}
@@ -328,15 +372,18 @@ parsefeed
 	eval {
 		$feed = XML::Feed->parse(\$content);
 	};
-	if ($@) {
+	if ($@ || !defined($feed)) {
 		printf STDERR "%s: $@\n",$URL;
 		if (defined(XML::Feed->errstr)) {
 			printf STDERR "%s: %s\n",$URL,XML::Feed->errstr;
 		}
 		return undef;
 	}
-	if ($feed->author() =~ /\@/) {
-		return $feed;
+	my $author = $feed->author();
+	if (defined($author)) {
+		if ($feed->author() =~ /\@/) {
+			return $feed;
+		}
 	}
 	my $atom = XML::Atom::Feed->new(\$content);
 	my $person = $atom->author();
@@ -357,10 +404,11 @@ handletext
 		}
 		$r = parse_to_text($cset,encode('UTF-8',$text));
 		if ($tdebug) {
-		foreach my $lang (('iso-8859-1','iso-8859-2','iso-8859-16',
-				'ascii','ascii-ctrl','utf-8')) {
-			printf STDERR "Output: '%s'(%s)\n",encode($lang,$r),$lang;
-		}
+			foreach my $lang (('iso-8859-1','iso-8859-2',
+			    'iso-8859-16','ascii','ascii-ctrl','utf-8')) {
+				printf STDERR "Output: '%s'(%s)\n",
+				    encode($lang,$r),$lang;
+			}
 		}
 	};
 	if ($@) {
@@ -402,12 +450,14 @@ recurse_types
 	}
 	my $type = ref($item);
 	if ($type eq "") {
-		return sprintf("%s Data('%s'[%dB])\n",$str,$item,length($item));
+		return sprintf("%s Data('%s'[%dB])\n",$str,$item,
+		    length($item));
 	}
 	my $retstr = "";
 	if ($type eq "HASH") {
 		foreach my $hkey (keys %{$item}) {
-			$retstr .= recurse_types("$str: $hkey =>",${$item}{$hkey});
+			$retstr .= recurse_types("$str: $hkey =>",
+			    ${$item}{$hkey});
 		}
 		return $retstr;
 	}
@@ -424,7 +474,8 @@ recurse_types
 	my %test = $item;
 	if (keys %test) {
 		foreach my $hkey (keys %test) {
-			$retstr .= recurse_types("${str}"."::"."$hkey =>",$test{$hkey});
+			$retstr .= recurse_types("${str}"."::"."$hkey =>",
+			    $test{$hkey});
 		}
 		return $retstr;
 	}

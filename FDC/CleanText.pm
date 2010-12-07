@@ -28,6 +28,7 @@ recode
 	$text =~ s/\xc3\x83\xc2\xa9/e/g;
 	$text =~ s/\xc3\x83\xc2\xa0/a/g;
 	# 3 char sequences
+	$text =~ s/\x{ef}\x{bf}\x{bd}//g;
 	$text =~ s/â\x80\x93/-/g; 
 	$text =~ s/â\x80\x99/'/g; 
 	$text =~ s/â\x80\x9c/"/g; 
