@@ -1,0 +1,90 @@
+#!/usr/bin/perl
+
+# Copyright (c) 2010 Todd T. Fries <todd@fries.net>
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+use strict;
+use warnings;
+
+use LWP::UserAgent;
+use HTML::FormatText::WithImgLinks;
+use Encode qw( encode decode );
+
+use OpenBSD::Getopt;
+
+our $opt_v = 0;
+getopts('v');
+
+my $verbose = $opt_v;
+
+my $config_file = $ENV{'HOME'}."/.h2t.conf";
+my %conf;
+if (open(C, $config_file)) {
+	while (<C>) {
+		next if /^#/;
+		last if /^END$/;
+		my $line;
+		chomp($line=$_);
+		my ($var,$val) = split(/=/,$line,2);
+		if ($verbose) {
+			printf STDERR "conf{%s} = '%s'\n",$var,$val;
+		}
+		push @{$conf{$var}}, $val;
+	}
+	close(C);
+} else {
+	die "Failed to open config $config_file: $!";
+}
+
+if (!defined(${$conf{'XML'}}[0])) {
+	die "Failed to find XML in config $config_file";
+}
+
+
+my $ua = LWP::UserAgent->new();
+$ua->agent( "R2E/0.0 " . $ua->agent );
+$ua->env_proxy();
+
+if ($verbose) {
+	$| = 1; # Enable autoflush, to help with ordered output/debugging
+}
+foreach my $URL (@{$conf{'XML'}}) {
+	my $content;
+
+	printf STDERR "Requesting %s\n",$URL;
+
+	my $req = HTTP::Request->new(GET => $URL);
+
+	my $res = $ua->request( $req );
+
+	my $text = $res->content_ref;
+
+	my $feed;
+	$content = decode('utf-8', $$text);
+	printf "Decoded:\n%s\n",parse_to_text('utf-8',$content);
+}
+
+sub
+parse_to_text
+{
+	my ($rsscset,$text) = @_;
+
+	my $f = HTML::FormatText::WithImgLinks->new($rsscset);
+	$text = $f->parse($text);
+	$f = undef;
+
+	return $text;
+}
+
+1;
