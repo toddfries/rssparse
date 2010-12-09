@@ -28,29 +28,6 @@ getopts('v');
 
 my $verbose = $opt_v;
 
-my $config_file = $ENV{'HOME'}."/.h2t.conf";
-my %conf;
-if (open(C, $config_file)) {
-	while (<C>) {
-		next if /^#/;
-		last if /^END$/;
-		my $line;
-		chomp($line=$_);
-		my ($var,$val) = split(/=/,$line,2);
-		if ($verbose) {
-			printf STDERR "conf{%s} = '%s'\n",$var,$val;
-		}
-		push @{$conf{$var}}, $val;
-	}
-	close(C);
-} else {
-	die "Failed to open config $config_file: $!";
-}
-
-if (!defined(${$conf{'XML'}}[0])) {
-	die "Failed to find XML in config $config_file";
-}
-
 
 my $ua = LWP::UserAgent->new();
 $ua->agent( "R2E/0.0 " . $ua->agent );
@@ -59,7 +36,7 @@ $ua->env_proxy();
 if ($verbose) {
 	$| = 1; # Enable autoflush, to help with ordered output/debugging
 }
-foreach my $URL (@{$conf{'XML'}}) {
+foreach my $URL (@ARGV) {
 	my $content;
 
 	printf STDERR "Requesting %s\n",$URL;
