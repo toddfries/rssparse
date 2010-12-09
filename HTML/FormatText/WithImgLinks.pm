@@ -899,7 +899,7 @@ ref_filter
 		return 0;
 	}
 	foreach my $filter (("doubleclick.net")) {
-		if ($reference =~ m/(http|ftp):\/\/[^\/]+$filter\//) {
+		if ($reference =~ m/(http|https|ftp):\/\/[^\/]+$filter\//) {
 			return 0;
 		}
 	}
@@ -931,16 +931,19 @@ strip_compare
 	if (!defined($t2) && !defined($t1)) {
 		return 1;
 	}
-	$t1 =~ s/^(http|ftp|mailto)://;
+	$t1 =~ s/^\s*(.*)\s*$/$1/;
+	$t1 =~ s/^(https|http|ftp|mailto)://;
 	$t1 =~ s/^\/\///;
 	$t1 =~ s/\/$//;
-	$t2 =~ s/^(http|ftp|mailto)://;
+	$t2 =~ s/^\s*(.*)\s*$/$1/;
+	$t2 =~ s/^(https|http|ftp|mailto)://;
 	$t2 =~ s/^\/\///;
 	$t2 =~ s/\/$//;
 	if ($t1 eq $t2) {
 		push @{$self->{filters}},$t1;
 		return 0;
 	}
+	printf STDERR "\$t1(%s)!=\$t2(%s)\n",$t1,$t2;
 	return 1;
 }
 sub
