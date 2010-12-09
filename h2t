@@ -48,10 +48,14 @@ foreach my $URL (@ARGV) {
 	my $res = $ua->request( $req );
 
 	my $text = $res->content_ref;
+	my $type = $res->header( 'Content-Type' );
+	if ($type =~ m/text\/(html|plain)/) {
 
-	my $feed;
-	$content = decode('utf-8', $$text);
-	print parse_to_text('utf-8',$content);
+		$content = decode('utf-8', $$text);
+		print parse_to_text('utf-8',$content);
+	} else {
+		printf "Not parsing Content-Type: %s\n",$type;
+	}
 }
 
 sub
