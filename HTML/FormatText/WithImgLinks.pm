@@ -943,7 +943,7 @@ strip_compare
 		push @{$self->{filters}},$t1;
 		return 0;
 	}
-	printf STDERR "\$t1(%s)!=\$t2(%s)\n",$t1,$t2;
+	#printf STDERR "\$t1(%s)!=\$t2(%s)\n",$t1,$t2;
 	return 1;
 }
 sub
