@@ -27,12 +27,18 @@ use FDC::CleanText;
 sub
 new
 {
-	my ($class,$cset) = @_;
+	my ($class,$cset,$wordwrap) = @_;
 
 	my $self = { };
 
 	my $ret = bless $self,$class;
 	$self->{cset} = $cset;
+	if (defined($wordwrap)) {
+		$self->{wordwrap}=$wordwrap;
+	} else {
+		$self->{wordwrap}=0;
+	}
+	@{$self->{filters}}=();
 	$self->init;
 	return $ret;
 }
@@ -486,8 +492,20 @@ parse
 
 	my $p = HTML::TokeParser->new( \$text );
 	$p->xml_mode(1);
+	my $cols = $ENV{'COLUMNS'};
+	if (defined($cols)) {
+		if ($cols<1) {
+			$cols=80;
+		}
+	} else {
+		$cols=80;
+	}
+	$cols -= 2;
+			
 	my $c = "";
 	my $astate = 0;
+	my $titlestate = 0;
+	my $stylestate = 0;
 	my $i = 0;
 	my $f = "";
 	my @urls;
@@ -503,74 +521,151 @@ parse
 			if ($astate) {
 				$tt =~ s/[ ]+$//;
 				if (length($tt)>0) {
-					if ($tt =~ m/ /) {
+					my $url = $urls[$#urls];
+					$self->strip_compare($tt,$url);
+					if ($tt =~ m/ / && ref_filter($url)) {
 						$tt = "($tt)";
 					}
 				}
+			}
+			if ($titlestate) {
+				$tt =~ s/[ ]+$//;
+				if (length($tt)>0) {
+					$tt = "TITLE: $tt\n\n";
+				}
+			}
+			if ($stylestate) {
+				# styles are not printable!
+				next;
 			}
 			$c .= $tt;
 			next;
 		}
 		if ($t->[0] eq "S") { # Start tag
-			if ($t->[1] eq "a" && defined(${$t->[2]}{'href'})) {
-				push @urls,${$t->[2]}{'href'};
-				$astate++;
+			if ($t->[1] =~ m/^a$/i) {
+				my $href=$self->getsub($t,'href');
+				if (defined($href)) {
+					push @urls,$href;
+					$astate++;
+					next;
+				}
+				my $name=$self->getsub($t,'name');
+				if (defined($name)) {
+					push @urls,$name;
+					$astate++;
+					next;
+				}
+			}
+			if ($t->[1] =~ m/^img$/i) {
+				my $img = $self->getsub($t,'src');
+				if (defined($img)) {
+					if (ref_filter($img)) {
+						push @imgs,$img;
+						$c .= "%%img$#imgs%%";
+					}
+					next;
+				}
+			}
+			if ($t->[1] =~ m/^title$/i) {
+				$titlestate++;
 				next;
 			}
-			if ($t->[1] eq "img" && defined(${$t->[2]}{'src'})) {
-				push @imgs,${$t->[2]}{'src'};
-				$c .= "%%img$#imgs%%";
+			if ($t->[1] =~ m/^style$/i) {
+				$stylestate++;
 				next;
 			}
-			if ($t->[1] =~ /^(div|span|p)/) {
+			if ($t->[1] =~ /^(div|span|p)/i) {
 				next;
 			}
-			if ($t->[1] eq "br") {
+			if ($t->[1] =~ m/^br$/i) {
 				$c .= "\n";
 				next;
 			}
+			if ($t->[1] =~ m/^hr$/i) {
+				$c .= "\n" . "-" x $cols . "\n \n";
+				next;
+			}
+			if ($t->[1] =~ m/^(font|b|st1:.*|o:.*|html|head|body|meta|u)$/i) {
+				next;
+			}
+			if ($t->[1] =~ m/^(table|tbody|tr|td)$/i) {
+				next;
+			}
+			if ($t->[1] =~ m/^(xml|small|ul|ol|li|strong|i)$/i) {
+				next;
+			}
+			if ($t->[1] =~ m/^MailScanner/i) {
+				next;
+			}
+			printf STDERR "parse: unhandled start tag: %s\n",
+			    $t->[1];
 		}
 		if ($t->[0] eq "E") { # End tag
-			if ($t->[1] eq "a") {
+			if ($t->[1] =~ m/^a$/i) {
 				$c .= "%%url$#urls%%";
 				$astate--;
 				next;
 			}
-			if ($t->[1] eq "img") {
+			if ($t->[1] =~ m/^img$/i) {
 				next;
 			}
-			if ($t->[1] =~ /^(br|div|span)/) {
+			if ($t->[1] =~ /^(br|div|span)/i) {
 				next;
 			}
-			if ($t->[1] eq "p") {
+			if ($t->[1] =~ m/^p$/i) {
 				$c .= "\n";
 				next;
 			}
+			if ($t->[1] =~ m/^(font|b|st1:.*|o:.*|html|head|body|meta|u)$/i) {
+				next;
+			}
+			if ($t->[1] =~ m/^(table|tbody|tr|td)$/i) {
+				next;
+			}
+			if ($t->[1] =~ m/^(xml|small|ul|ol|li|strong|i)$/i) {
+				next;
+			}
+			if ($t->[1] =~ m/^title$/i) {
+				$titlestate--;
+				next;
+			}
+			if ($t->[1] =~ m/^style$/i) {
+				$stylestate--;
+				next;
+			}
+			if ($t->[1] =~ m/^MailScanner/i) {
+				next;
+			}
+			printf STDERR "parse: unhandled end tag: %s\n",
+			    $t->[1];
 		}
 		if ($t->[0] eq "C") { # Comment
 			next;
 		}
-		if (0) {
-		printf "{";
+		if ($t->[0] eq "D") { # Doctype
+			next;
+		}
+		if (1) {
+		printf STDERR "{";
 		$i=0;
 		foreach my $subt (@{$t}) {
-			printf " %d=%s",$i++,$subt;
+			printf STDERR " %d=%s",$i++,$subt;
 			if (ref $subt eq "HASH") {
-				printf "{";
+				printf STDERR "{";
 				foreach my $key (keys %{$subt}) {
-					printf "%s=>%s,",$key,${$subt}{$key};
+					printf STDERR "%s=>%s,",$key,${$subt}{$key};
 				}
-				printf "}";
+				printf STDERR "}";
 			}
 			if (ref $subt eq "ARRAY") {
-				printf "[";
+				printf STDERR "[";
 				foreach my $key (@{$subt}) {
-					printf "%s,",$key;
+					printf STDERR "%s,",$key;
 				}
-				printf "]";
+				printf STDERR "]";
 			}
 		}
-		printf " }\n";
+		printf STDERR " }\n";
 		}
 	}
 	my $cache;
@@ -584,7 +679,7 @@ parse
 			}
 		}
 		$f .= "\nReferences:\n" if $#{$cache} > -1;
-		$footnotefmt = sprintf "[%%%dd] %%s\n",$self->poweroften($#{$cache});
+		$footnotefmt = sprintf " %%%dd. %%s\n",$self->poweroften($#{$cache});
 		@{$cache} = ();
 		foreach my $u (@urls) {
 			my $ucount = $#{$cache};
@@ -609,7 +704,7 @@ parse
 			}
 		}
 		$f .= "\nImages:\n" if $#{$cache} > -1;
-		$footnotefmt = sprintf "{%%%dd} %%s\n",$self->poweroften($#{$cache});
+		$footnotefmt = sprintf " %%%dd. %%s\n",$self->poweroften($#{$cache});
 		$i = 0;
 		@{$cache} = ();
 		foreach my $img (@imgs) {
@@ -634,6 +729,11 @@ parse
 	$text =~ s/({[0-9]+}|\[[0-9]+\])[[:space:]][[:space:]]*({[0-9]+}|\[[0-9]+\])/$1 $2/g;
 	$text =~ s/[[:space:]][[:space:]]*(\[[0-9]+\])/$1/g;
 	$text =~ s/^[ \t]+//g;
+	$text =~ s/^\s+$//g;
+	#$text =~ s/\n\n/\n/mg;
+
+	# clean [mailto:foo@example.com] uglyness to <foo@example.com>
+	$text =~ s/\[mailto:([^\]]+)\]/<$1>/g;
 
 	#my $cset = MIME::Charset->new("ISO-8859-1");
 	#my $cset = MIME::Charset->new("US-ASCII");
@@ -701,6 +801,7 @@ parse
 	my $lm=0;
 	my $rm=79;
 	my $finalcr=0;
+	if ($self->{wordwrap}) {
 	if ($output =~ m/\n/s) {
 		$finalcr=1;
 	}
@@ -724,6 +825,9 @@ parse
 		if ($finalcr) {
 			$out.="\n";
 		}
+	}
+	} else {
+		$out = $output;
 	}
 	$out =~ s/[ \t]*$//g;
 	# add footnotes
@@ -761,17 +865,64 @@ sub
 ref_filter
 {
 	my ($self,$reference) = @_;
+	if (!defined($reference)) {
+		return 0;
+	}
 	foreach my $filter (("doubleclick.net")) {
 		if ($reference =~ m/(http|ftp):\/\/[^\/]+$filter\//) {
 			return 0;
 		}
-		if ($reference =~ m/javascript:/) {
+	}
+	if (! ($reference =~ m/^[a-z]+:/)) {
+		return 0;
+	}
+	if ($reference =~ m/(javascript|cid):/) {
+		return 0;
+	}
+	foreach my $filter (@{$self->{filters}}) {
+		if ($reference =~ m/${filter}/) {
 			return 0;
 		}
 	}
 	return 1;
 }
 
-1;
+sub
+strip_compare
+{
+	my ($self,$t1,$t2) = @_;
+
+	if (!defined($t1) && defined($t2)) {
+		return 1;
+	}
+	if (!defined($t2) && defined($t1)) {
+		return 1;
+	}
+	if (!defined($t2) && !defined($t1)) {
+		return 1;
+	}
+	$t1 =~ s/^(http|ftp|mailto)://;
+	$t1 =~ s/^\/\///;
+	$t1 =~ s/\/$//;
+	$t2 =~ s/^(http|ftp|mailto)://;
+	$t2 =~ s/^\/\///;
+	$t2 =~ s/\/$//;
+	if ($t1 eq $t2) {
+		push @{$self->{filters}},$t1;
+		return 0;
+	}
+	return 1;
+}
+sub
+getsub
+{
+	my ($self,$t,$var) = @_;
+	my $val = ${$t->[2]}{lc($var)};
+	if (defined($val)) {
+		return $val;
+	}
+	$val = ${$t->[2]}{uc($var)};
+	return $val;
+}
 
 1;

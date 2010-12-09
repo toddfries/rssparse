@@ -39,7 +39,9 @@ if ($verbose) {
 foreach my $URL (@ARGV) {
 	my $content;
 
-	printf STDERR "Requesting %s\n",$URL;
+	if ($verbose) {
+		printf STDERR "Requesting %s\n",$URL;
+	}
 
 	my $req = HTTP::Request->new(GET => $URL);
 
@@ -49,7 +51,7 @@ foreach my $URL (@ARGV) {
 
 	my $feed;
 	$content = decode('utf-8', $$text);
-	printf "Decoded:\n%s\n",parse_to_text('utf-8',$content);
+	print parse_to_text('utf-8',$content);
 }
 
 sub
@@ -57,7 +59,7 @@ parse_to_text
 {
 	my ($rsscset,$text) = @_;
 
-	my $f = HTML::FormatText::WithImgLinks->new($rsscset);
+	my $f = HTML::FormatText::WithImgLinks->new($rsscset,1);
 	$text = $f->parse($text);
 	$f = undef;
 
