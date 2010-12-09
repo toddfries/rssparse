@@ -505,7 +505,7 @@ parse
 	my $c = "";
 	my $astate = 0;
 	my $titlestate = 0;
-	my $stylestate = 0;
+	my $ignorestate = 0;
 	my $i = 0;
 	my $f = "";
 	my @urls;
@@ -534,8 +534,8 @@ parse
 					$tt = "TITLE: $tt\n\n";
 				}
 			}
-			if ($stylestate) {
-				# styles are not printable!
+			if ($ignorestate) {
+				# not printable!
 				next;
 			}
 			$c .= $tt;
@@ -570,8 +570,8 @@ parse
 				$titlestate++;
 				next;
 			}
-			if ($t->[1] =~ m/^style$/i) {
-				$stylestate++;
+			if ($t->[1] =~ m/^(style|map)$/i) {
+				$ignorestate++;
 				next;
 			}
 			if ($t->[1] =~ /^(div|span|p)/i) {
@@ -629,8 +629,8 @@ parse
 				$titlestate--;
 				next;
 			}
-			if ($t->[1] =~ m/^style$/i) {
-				$stylestate--;
+			if ($t->[1] =~ m/^(style|map)$/i) {
+				$ignorestate--;
 				next;
 			}
 			if ($t->[1] =~ m/^MailScanner/i) {
