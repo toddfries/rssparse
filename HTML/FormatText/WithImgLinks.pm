@@ -542,7 +542,13 @@ parse
 			next;
 		}
 		if ($t->[0] eq "S") { # Start tag
-			if ($t->[1] =~ m/^a$/i) {
+			if ($t->[1] =~ m/^(a|link)$/i) {
+				my $type = $self->getsub($t,"type");
+				if (defined($type)) {
+					if ($type eq "text/css") {
+						next;
+					}
+				}
 				my $href=$self->getsub($t,'href');
 				if (defined($href)) {
 					push @urls,$href;
@@ -555,6 +561,7 @@ parse
 					$astate++;
 					next;
 				}
+				printf STDERR "parse:S:(a|link): Unhandled\n";
 			}
 			if ($t->[1] =~ m/^img$/i) {
 				my $img = $self->getsub($t,'src');
@@ -566,15 +573,18 @@ parse
 					next;
 				}
 			}
+			if ($t->[1] =~ m/^(pre|code|abbr)$/i) {
+				next;
+			}
 			if ($t->[1] =~ m/^title$/i) {
 				$titlestate++;
 				next;
 			}
-			if ($t->[1] =~ m/^(style|map)$/i) {
+			if ($t->[1] =~ m/^(script|style|map)$/i) {
 				$ignorestate++;
 				next;
 			}
-			if ($t->[1] =~ /^(div|span|p)/i) {
+			if ($t->[1] =~ /^(div|span|p|input|form)/i) {
 				next;
 			}
 			if ($t->[1] =~ m/^br$/i) {
@@ -601,7 +611,13 @@ parse
 			    $t->[1];
 		}
 		if ($t->[0] eq "E") { # End tag
-			if ($t->[1] =~ m/^a$/i) {
+			if ($t->[1] =~ m/^(a|link)$/i) {
+				my $type = $self->getsub($t,'type');
+				if (defined($type)) {
+					if ($type eq "text/css") {
+						next;
+					}
+				}
 				$c .= "%%url$#urls%%";
 				$astate--;
 				next;
@@ -609,7 +625,10 @@ parse
 			if ($t->[1] =~ m/^img$/i) {
 				next;
 			}
-			if ($t->[1] =~ /^(br|div|span)/i) {
+			if ($t->[1] =~ m/^(pre|code|abbr)$/i) {
+				next;
+			}
+			if ($t->[1] =~ /^(br|div|span|input|form)/i) {
 				next;
 			}
 			if ($t->[1] =~ m/^p$/i) {
@@ -629,7 +648,7 @@ parse
 				$titlestate--;
 				next;
 			}
-			if ($t->[1] =~ m/^(style|map)$/i) {
+			if ($t->[1] =~ m/^(script|style|map)$/i) {
 				$ignorestate--;
 				next;
 			}
@@ -928,11 +947,36 @@ sub
 getsub
 {
 	my ($self,$t,$var) = @_;
-	my $val = ${$t->[2]}{lc($var)};
-	if (defined($val)) {
-		return $val;
+	if (!defined($t)) {
+		printf STDERR "getsub: \$t = undef\n";
+		return "";
 	}
-	$val = ${$t->[2]}{uc($var)};
+	if (!defined($var)) {
+		printf STDERR "getsub: \$var = undef\n";
+		return "";
+	}
+	if (length($var) < 1) {
+		printf STDERR "getsub: \$var is empty\n";
+		return "";
+	}
+	my $val;
+	eval {
+		my $lc = lc($var);
+		if (ref($t->[2]) eq "HASH") {
+			$val = ${$t->[2]}{$lc};
+		} else {
+			return "";
+		}
+		if (defined($val)) {
+			return $val;
+		}
+		$val = ${$t->[2]}{uc("$var")};
+	};
+	if ($@) {
+		printf STDERR "getsub: failed to get \$var(%s) from \$t: $@\n",
+				$var;
+		return "";
+	}
 	return $val;
 }
 
