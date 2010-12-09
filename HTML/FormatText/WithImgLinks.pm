@@ -591,7 +591,7 @@ parse
 			if ($t->[1] =~ m/^(table|tbody|tr|td)$/i) {
 				next;
 			}
-			if ($t->[1] =~ m/^(xml|small|ul|ol|li|strong|i)$/i) {
+			if ($t->[1] =~ m/^(xml|small|ul|ol|li|em|strong|i|sup|center|h[0-9]|big)$/i) {
 				next;
 			}
 			if ($t->[1] =~ m/^MailScanner/i) {
@@ -622,7 +622,7 @@ parse
 			if ($t->[1] =~ m/^(table|tbody|tr|td)$/i) {
 				next;
 			}
-			if ($t->[1] =~ m/^(xml|small|ul|ol|li|strong|i)$/i) {
+			if ($t->[1] =~ m/^(xml|small|ul|ol|li|em|strong|i|sup|center|h[0-9]|big)$/i) {
 				next;
 			}
 			if ($t->[1] =~ m/^title$/i) {
@@ -679,7 +679,7 @@ parse
 			}
 		}
 		$f .= "\nReferences:\n" if $#{$cache} > -1;
-		$footnotefmt = sprintf " %%%dd. %%s\n",$self->poweroften($#{$cache});
+		$footnotefmt = sprintf " %%%dx. %%s\n",$self->powerofsixteen($#{$cache});
 		@{$cache} = ();
 		foreach my $u (@urls) {
 			my $ucount = $#{$cache};
@@ -704,7 +704,7 @@ parse
 			}
 		}
 		$f .= "\nImages:\n" if $#{$cache} > -1;
-		$footnotefmt = sprintf " %%%dd. %%s\n",$self->poweroften($#{$cache});
+		$footnotefmt = sprintf " %%%dx. %%s\n",$self->powerofsixteen($#{$cache});
 		$i = 0;
 		@{$cache} = ();
 		foreach my $img (@imgs) {
@@ -857,6 +857,17 @@ poweroften
 	my $pow = 1;
 	while ($num > 10) {
 		$num = $num/10;
+		$pow++;
+	}
+	return $pow;
+}
+sub
+powerofsixteen
+{
+	my ($self,$num) = @_;
+	my $pow = 1;
+	while ($num > 16) {
+		$num = $num/16;
 		$pow++;
 	}
 	return $pow;
