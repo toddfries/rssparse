@@ -767,34 +767,15 @@ parse
 	# Interesting things listed at:
 	# http://www.htmlcodetutorial.com/characterentities_famsupp_69.html
 	#$output = encode('utf-8',$output);
-	if (0) {
-		$output =~ s/&#233;/é/g;
-		$output =~ s/&#241;/ñ/g;
-		$output =~ s/&#8217;/'/g;
-		$output =~ s/&#8220;/"/g;
-		$output =~ s/&#8221;/"/g;
-		$output =~ s/&#8211;/-/g;
-		$output =~ s/&mdash;/--/g;
-		$output =~ s/&gt;/>/g;
-		$output =~ s/&lt;/</g;
-		$output =~ s/&amp;/\&/g;
-		$output =~ s/&rdquo;/"/g;
-		$output =~ s/&ldquo;/"/g;
-		$output =~ s/&rsquo;/'/g;
-		$output =~ s/&lsquo;/`/g;
-		$output =~ s/&ndash;/-/g;
-	} else {
-		while (my($entity,$char)=each(%{$self->{entity2char}})) {
-			$output =~ s/&$entity/$char/g;
-			#if ($entity =~ m/gt/) {
-			#	printf STDERR "{entity='%s',char='%s'}\n",$entity,$char;
-			#}
-		}
-		#$output = HTML::Entities::decode($output, \%{$self->{entity2char}});
-		#my $text_string = decode('UTF-8', $output);
-		#my $output = encode('us-ascii', $text_string);
-		# â
+	while (my($entity,$char)=each(%{$self->{entity2char}})) {
+		$output =~ s/&$entity/$char/g;
+		#if ($entity =~ m/gt/) {
+		#	printf STDERR "{entity='%s',char='%s'}\n",$entity,$char;
+		#}
 	}
+	#$output = HTML::Entities::decode($output, \%{$self->{entity2char}});
+	#my $text_string = decode('UTF-8', $output);
+	#my $output = encode('us-ascii', $text_string);
 	my $utfdebug = 0;
 	foreach my $debugline ((
 		#'odd to complain of a sense',
@@ -898,6 +879,7 @@ ref_filter
 	if (!defined($reference)) {
 		return 0;
 	}
+	$reference = lc($reference);
 	foreach my $filter (("doubleclick.net")) {
 		if ($reference =~ m/(http|https|ftp):\/\/[^\/]+$filter\//) {
 			return 0;
@@ -931,6 +913,8 @@ strip_compare
 	if (!defined($t2) && !defined($t1)) {
 		return 1;
 	}
+	$t1 = lc($t1);
+	$t2 = lc($t2);
 	$t1 =~ s/^\s*(.*)\s*$/$1/;
 	$t1 =~ s/^(https|http|ftp|mailto)://;
 	$t1 =~ s/^\/\///;
