@@ -1,4 +1,4 @@
-# Copyright (c) 2010 Todd T. Fries <todd@fries.net>
+# Copyright (c) 2010,2011 Todd T. Fries <todd@fries.net>
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -601,7 +601,7 @@ parse
 			if ($t->[1] =~ m/^(table|tbody|tr|td)$/i) {
 				next;
 			}
-			if ($t->[1] =~ m/^(xml|small|ul|ol|li|em|strong|i|sup|center|h[0-9]|big)$/i) {
+			if ($t->[1] =~ m/^(xml|small|ul|ol|li|em|strong|i|sup|center|h[0-9]|big|th)$/i) {
 				next;
 			}
 			if ($t->[1] =~ m/^MailScanner/i) {
@@ -641,7 +641,7 @@ parse
 			if ($t->[1] =~ m/^(table|tbody|tr|td)$/i) {
 				next;
 			}
-			if ($t->[1] =~ m/^(xml|small|ul|ol|li|em|strong|i|sup|center|h[0-9]|big)$/i) {
+			if ($t->[1] =~ m/^(xml|small|ul|ol|li|em|strong|i|sup|center|h[0-9]|big|th)$/i) {
 				next;
 			}
 			if ($t->[1] =~ m/^title$/i) {
