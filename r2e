@@ -29,6 +29,8 @@ use POSIX qw(strftime);
 use Digest::SHA qw/sha256_base64/;
 use Data::Dumper;
 
+use FDC::db;
+
 use XML::RSS;
 $XML::RSS::AUTO_ADD = 1; # force acceptance of extra namespaces
 
@@ -74,6 +76,33 @@ my $ua = LWP::UserAgent->new();
 $ua->agent( "R2E/0.0 " . $ua->agent );
 $ua->env_proxy();
 
+my $dsn = "dbi:SQLite:dbname=$ENV{'HOME'}/.r2e.db";
+
+my $db = FDC::db->new($dsn,"","");
+my $dbh = $db->getdbh();
+my @tables = $dbh->tables();
+my $dbtab = "r2e_ids";
+my $dbfee = "r2e_feeds";
+my $create_dbtab = 1;
+my $create_feeds = 1;
+foreach my $tname (@tables) {
+	if ($tname =~ m/\"${dbtab}\"/) {
+		$create_dbtab = 0;
+	}
+	if ($tname =~ m/\"${dbfee}\"/) {
+		$create_feeds = 0;
+	}
+}
+my $query;
+if ($create_feeds) {
+	$query = "CREATE TABLE ${dbtab} (feedid integer, guid varchar(256))";
+	$db->doquery($query);
+}
+if ($create_feeds) {
+	$query = "CREATE TABLE ${dbfee} (feedurl varchar(256))";
+	$db->doquery($query);
+}
+
 if ($verbose) {
 	$| = 1; # Enable autoflush, to help with ordered output/debugging
 }
@@ -89,6 +118,7 @@ foreach my $URL (@{$conf{'XML'}}) {
 	my $text = $res->content_ref;
 
 	my $feed;
+	my $feedid = feed_cache($db,$URL);
 	$content = decode('utf-8', $$text);
 	$feed = parsefeed($URL,$content);
 
@@ -155,6 +185,9 @@ foreach my $URL (@{$conf{'XML'}}) {
 			$guid = $entry->{entry}->{guid};
 		}
 		my $guid_sha = sha256_base64($guid);
+		if (guid_seen($db,$feedid,$guid_sha)) {
+			next;
+		}
 		my $link = $entry->link();
 		my $datetime = $entry->issued();
 		$datetime->set_time_zone("US/Central");
@@ -333,7 +366,7 @@ foreach my $URL (@{$conf{'XML'}}) {
 			    "XML::RSS::LibXML::MagicElement") {
 				my @attr = $val->attributes();
 				foreach my $att (@attr) {
-					if ($att eq "isPermlink") {
+					if ($att =~ m/isPermaLink/i) {
 						next;
 					}
 					printf STDERR
@@ -354,8 +387,8 @@ foreach my $URL (@{$conf{'XML'}}) {
 		if ($verbose) {
 			open(MAIL,">>/dev/stdout");
 		} else {
-			open(MAIL,">>/dev/stdout");
-			#open(MAIL,"|/usr/sbin/sendmail $recipient");
+			#open(MAIL,">>/dev/null");
+			open(MAIL,"|/usr/sbin/sendmail $recipient");
 		}
 		printf MAIL "%s",encode('utf-8',$mailstr);
 		close(MAIL);
@@ -490,6 +523,44 @@ compare
 	$str1 =~ s/[[:space:]][[:space:]]*/ /g;
 	$str2 =~ s/[[:space:]][[:space:]]*/ /g;
 	return ($str1 eq $str2);
+}
+
+sub
+guid_seen {
+	my ($db,$feedid,$sha) = @_;
+my $query = sprintf("SELECT oid from %s where feedid = %d and guid = '%s'",$dbtab,$feedid,$sha);
+	#printf "guid_seen: query=\"%s\"\n",$query;
+	my $sth = $db->doquery($query);
+	if (defined($sth) && $sth != -1) {
+		#my $oid = $sth->fetchrow_array;
+		#printf "guid_seen: query returned %s\n",$oid;
+		$sth->finish;
+		return 1;
+	}
+	#printf "guid_seen: query returned %s\n",$oid;
+	$sth = $db->doquery("INSERT INTO ${dbtab} ".
+	    "(feedid, guid) VALUES ($feedid, '$sha')");
+	$sth->finish;
+	return 0;
+}
+
+sub
+feed_cache {
+	my ($db,$feedurl) = @_;
+	my $query = "SELECT oid from ${dbfee} ".
+	    "where feedurl = '$feedurl'";
+	my $sth = $db->doquery($query);
+	#printf "feed_cache: query='%s' returned %s\n",$query,$sth;
+	if (defined($sth) && $sth != -1) {
+		my $oid = $sth->fetchrow_array;
+		$sth->finish;
+		#printf "Found oid %d => %s\n",$oid,$feedurl;
+		return $oid;
+	}
+	$db->do_oneret_query("INSERT INTO ${dbfee} ".
+	    "(feedurl) VALUES ('$feedurl')");
+	my $oid = $dbh->last_insert_id("","","","");
+	#printf "Inserted oid %d => %s\n",$oid,$feedurl;
 }
 
 1;
