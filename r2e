@@ -118,7 +118,11 @@ foreach my $URL (@{$conf{'XML'}}) {
 	my $text = $res->content_ref;
 
 	my $feed;
-	my $feedid = feed_cache($db,$URL);
+	my $feedid = feed_cache($db, $URL);
+	if (!defined($feedid)) {
+		printf STDERR "feed_cache failed!\n";
+		next;
+	}
 	$content = decode('utf-8', $$text);
 	$feed = parsefeed($URL,$content);
 
@@ -528,7 +532,7 @@ compare
 sub
 guid_seen {
 	my ($db,$feedid,$sha) = @_;
-my $query = sprintf("SELECT oid from %s where feedid = %d and guid = '%s'",$dbtab,$feedid,$sha);
+	my $query = sprintf("SELECT rowid from %s where feedid = %d and guid = '%s'",$dbtab,$feedid,$sha);
 	#printf "guid_seen: query=\"%s\"\n",$query;
 	my $sth = $db->doquery($query);
 	if (defined($sth) && $sth != -1) {
@@ -547,20 +551,26 @@ my $query = sprintf("SELECT oid from %s where feedid = %d and guid = '%s'",$dbta
 sub
 feed_cache {
 	my ($db,$feedurl) = @_;
-	my $query = "SELECT oid from ${dbfee} ".
+	my $query = "SELECT rowid from ${dbfee} ".
 	    "where feedurl = '$feedurl'";
 	my $sth = $db->doquery($query);
 	#printf "feed_cache: query='%s' returned %s\n",$query,$sth;
 	if (defined($sth) && $sth != -1) {
-		my $oid = $sth->fetchrow_array;
+		my ($oid) = $sth->fetchrow_array;
 		$sth->finish;
-		#printf "Found oid %d => %s\n",$oid,$feedurl;
-		return $oid;
+		if (defined($oid)) {
+			if ($oid < 1) {
+				printf STDERR "Found rowid %d => %s\n",$oid,$feedurl;
+				return $oid;
+			}
+		}
+		#printf STDERR "Undefined rowid returned %s\n",$feedurl;
 	}
 	$db->do_oneret_query("INSERT INTO ${dbfee} ".
 	    "(feedurl) VALUES ('$feedurl')");
 	my $oid = $dbh->last_insert_id("","","","");
-	#printf "Inserted oid %d => %s\n",$oid,$feedurl;
+	printf STDERR "Inserted rowid %d => %s\n",$oid,$feedurl;
+	return $oid;
 }
 
 1;
