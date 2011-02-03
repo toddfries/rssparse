@@ -561,6 +561,10 @@ parse
 					$astate++;
 					next;
 				}
+				my $rel=$self->getsub($t,'rel');
+				if (defined($rel)) {
+					next;
+				}
 				printf STDERR "parse:S:(a|link): Unhandled\n";
 			}
 			if ($t->[1] =~ m/^img$/i) {
@@ -598,7 +602,7 @@ parse
 			if ($t->[1] =~ m/^(font|b|st1:.*|o:.*|html|head|body|meta|u)$/i) {
 				next;
 			}
-			if ($t->[1] =~ m/^(table|tbody|tr|td)$/i) {
+			if ($t->[1] =~ m/^(table|tbody|tr|td|object|param|embed|iframe)$/i) {
 				next;
 			}
 			if ($t->[1] =~ m/^(xml|small|ul|ol|li|em|strong|i|sup|center|h[0-9]|big|th)$/i) {
@@ -638,7 +642,7 @@ parse
 			if ($t->[1] =~ m/^(font|b|st1:.*|o:.*|html|head|body|meta|u)$/i) {
 				next;
 			}
-			if ($t->[1] =~ m/^(table|tbody|tr|td)$/i) {
+			if ($t->[1] =~ m/^(table|tbody|tr|td|object|param|embed|iframe)$/i) {
 				next;
 			}
 			if ($t->[1] =~ m/^(xml|small|ul|ol|li|em|strong|i|sup|center|h[0-9]|big|th)$/i) {
