@@ -523,7 +523,7 @@ parse
 				if (length($tt)>0) {
 					my $url = $urls[$#urls];
 					$self->strip_compare($tt,$url);
-					if ($tt =~ m/ / && ref_filter($url)) {
+					if ($tt =~ m/ / && $self->ref_filter($url)) {
 						$tt = "($tt)";
 					}
 				}
@@ -896,7 +896,7 @@ ref_filter
 		return 0;
 	}
 	foreach my $filter (@{$self->{filters}}) {
-		if ($reference =~ m/${filter}/) {
+		if ($reference =~ m/${filter}$/) {
 			return 0;
 		}
 	}
