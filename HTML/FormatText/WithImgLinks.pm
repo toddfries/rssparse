@@ -611,6 +611,9 @@ parse
 			if ($t->[1] =~ m/^MailScanner/i) {
 				next;
 			}
+			if ($t->[1] =~ m/^(area)/i) {
+				next;
+			}
 			printf STDERR "parse: unhandled start tag: %s\n",
 			    $t->[1];
 		}
