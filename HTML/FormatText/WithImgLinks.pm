@@ -665,6 +665,10 @@ parse
 			if ($t->[1] =~ m/^(area|blockquote|label)/i) {
 				next;
 			}
+			if ($t->[1] =~ m/^hr$/i) {
+				#$c .= "\n" . "-" x $cols . "\n \n";
+				next;
+			}
 			printf STDERR "parse: unhandled end tag: %s\n",
 			    $t->[1];
 		}
