@@ -611,7 +611,7 @@ parse
 			if ($t->[1] =~ m/^MailScanner/i) {
 				next;
 			}
-			if ($t->[1] =~ m/^(area)/i) {
+			if ($t->[1] =~ m/^(area|blockquote|label)/i) {
 				next;
 			}
 			printf STDERR "parse: unhandled start tag: %s\n",
@@ -660,6 +660,9 @@ parse
 				next;
 			}
 			if ($t->[1] =~ m/^MailScanner/i) {
+				next;
+			}
+			if ($t->[1] =~ m/^(area|blockquote|label)/i) {
 				next;
 			}
 			printf STDERR "parse: unhandled end tag: %s\n",
@@ -717,6 +720,7 @@ parse
 			}
 			$c =~ s/%%url${i}%%/$urlstr/g;
 			if ($ucount < $#{$cache} && length($urlstr) > 0) {
+				$u =~ s/^mailto://;
 				$f .= sprintf "${footnotefmt}",$offset,$u;
 			}
 			$i++;
