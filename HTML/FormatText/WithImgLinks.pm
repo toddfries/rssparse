@@ -611,7 +611,10 @@ parse
 			if ($t->[1] =~ m/^MailScanner/i) {
 				next;
 			}
-			if ($t->[1] =~ m/^(area|blockquote|label)/i) {
+			if ($t->[1] =~ m/^(area|blockquote|label|nobr)/i) {
+				next;
+			}
+			if ($t->[1] =~ m/^(e:footer)/i) {
 				next;
 			}
 			printf STDERR "parse: unhandled start tag: %s\n",
@@ -662,11 +665,14 @@ parse
 			if ($t->[1] =~ m/^MailScanner/i) {
 				next;
 			}
-			if ($t->[1] =~ m/^(area|blockquote|label)/i) {
+			if ($t->[1] =~ m/^(area|blockquote|label|nobr)/i) {
 				next;
 			}
 			if ($t->[1] =~ m/^hr$/i) {
 				#$c .= "\n" . "-" x $cols . "\n \n";
+				next;
+			}
+			if ($t->[1] =~ m/^(e:footer)/i) {
 				next;
 			}
 			printf STDERR "parse: unhandled end tag: %s\n",
