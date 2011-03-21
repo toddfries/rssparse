@@ -614,7 +614,7 @@ parse
 			if ($t->[1] =~ m/^(area|blockquote|label|nobr)/i) {
 				next;
 			}
-			if ($t->[1] =~ m/^(e:footer)/i) {
+			if ($t->[1] =~ m/^(e:footer|col)/i) {
 				next;
 			}
 			printf STDERR "parse: unhandled start tag: %s\n",
