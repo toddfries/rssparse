@@ -510,7 +510,9 @@ parse
 	my $f = "";
 	my @urls;
 	my @imgs;
+	my ($tcount,$tign,$tunk) = (0,0,0);
 	while (my $t = $p->get_token()) {
+		$tcount++;
 		if ($t->[0] eq "T") { # Text
 			my $tt = $t->[1];
 			$tt =~ s/&nbsp;/ /g;
@@ -536,6 +538,7 @@ parse
 			}
 			if ($ignorestate) {
 				# not printable!
+				$tign++;
 				next;
 			}
 			$c .= $tt;
@@ -546,6 +549,7 @@ parse
 				my $type = $self->getsub($t,"type");
 				if (defined($type)) {
 					if ($type eq "text/css") {
+						$tign++;
 						next;
 					}
 				}
@@ -563,9 +567,12 @@ parse
 				}
 				my $rel=$self->getsub($t,'rel');
 				if (defined($rel)) {
+					$tign++;
 					next;
 				}
+				$tunk++;
 				printf STDERR "parse:S:(a|link): Unhandled\n";
+				next;
 			}
 			if ($t->[1] =~ m/^img$/i) {
 				my $img = $self->getsub($t,'src');
@@ -573,11 +580,14 @@ parse
 					if (ref_filter($img)) {
 						push @imgs,$img;
 						$c .= "%%img$#imgs%%";
+					} else {
+						$tign++;
 					}
 					next;
 				}
 			}
 			if ($t->[1] =~ m/^(pre|code|abbr)$/i) {
+				$tign++;
 				next;
 			}
 			if ($t->[1] =~ m/^title$/i) {
@@ -585,10 +595,12 @@ parse
 				next;
 			}
 			if ($t->[1] =~ m/^(script|style|map)$/i) {
+				$tign++;
 				$ignorestate++;
 				next;
 			}
 			if ($t->[1] =~ /^(div|span|p|input|form)/i) {
+				$tign++;
 				next;
 			}
 			if ($t->[1] =~ m/^br$/i) {
@@ -600,31 +612,40 @@ parse
 				next;
 			}
 			if ($t->[1] =~ m/^(font|b|st1:.*|o:.*|html|head|body|meta|u)$/i) {
+				$tign++;
 				next;
 			}
 			if ($t->[1] =~ m/^(table|tbody|tr|td|object|param|embed|iframe)$/i) {
+				$tign++;
 				next;
 			}
 			if ($t->[1] =~ m/^(xml|small|ul|ol|li|em|strong|i|sup|center|h[0-9]|big|th)$/i) {
+				$tign++;
 				next;
 			}
 			if ($t->[1] =~ m/^MailScanner/i) {
+				$tign++;
 				next;
 			}
 			if ($t->[1] =~ m/^(area|blockquote|label|nobr)/i) {
+				$tign++;
 				next;
 			}
 			if ($t->[1] =~ m/^(e:footer|col)/i) {
+				$tign++;
 				next;
 			}
+			$tunk++;
 			printf STDERR "parse: unhandled start tag: %s\n",
 			    $t->[1];
+			next;
 		}
 		if ($t->[0] eq "E") { # End tag
 			if ($t->[1] =~ m/^(a|link)$/i) {
 				my $type = $self->getsub($t,'type');
 				if (defined($type)) {
 					if ($type eq "text/css") {
+						$tign++;
 						next;
 					}
 				}
@@ -633,12 +654,15 @@ parse
 				next;
 			}
 			if ($t->[1] =~ m/^img$/i) {
+				$tign++;
 				next;
 			}
 			if ($t->[1] =~ m/^(pre|code|abbr)$/i) {
+				$tign++;
 				next;
 			}
 			if ($t->[1] =~ /^(br|div|span|input|form)/i) {
+				$tign++;
 				next;
 			}
 			if ($t->[1] =~ m/^p$/i) {
@@ -646,12 +670,15 @@ parse
 				next;
 			}
 			if ($t->[1] =~ m/^(font|b|st1:.*|o:.*|html|head|body|meta|u)$/i) {
+				$tign++;
 				next;
 			}
 			if ($t->[1] =~ m/^(table|tbody|tr|td|object|param|embed|iframe)$/i) {
+				$tign++;
 				next;
 			}
 			if ($t->[1] =~ m/^(xml|small|ul|ol|li|em|strong|i|sup|center|h[0-9]|big|th)$/i) {
+				$tign++;
 				next;
 			}
 			if ($t->[1] =~ m/^title$/i) {
@@ -660,28 +687,37 @@ parse
 			}
 			if ($t->[1] =~ m/^(script|style|map)$/i) {
 				$ignorestate--;
+				$tign++;
 				next;
 			}
 			if ($t->[1] =~ m/^MailScanner/i) {
+				$tign++;
 				next;
 			}
 			if ($t->[1] =~ m/^(area|blockquote|label|nobr)/i) {
+				$tign++;
 				next;
 			}
 			if ($t->[1] =~ m/^hr$/i) {
 				#$c .= "\n" . "-" x $cols . "\n \n";
+				$tign++;
 				next;
 			}
 			if ($t->[1] =~ m/^(e:footer)/i) {
+				$tign++;
 				next;
 			}
+			$tunk++;
 			printf STDERR "parse: unhandled end tag: %s\n",
 			    $t->[1];
+			next;
 		}
 		if ($t->[0] eq "C") { # Comment
+			$tign++;
 			next;
 		}
 		if ($t->[0] eq "D") { # Doctype
+			$tign++;
 			next;
 		}
 		if (1) {
@@ -853,6 +889,9 @@ parse
 	$out =~ s/[ \t]*$//g;
 	# add footnotes
 	$out .= $f;
+	# add signature
+	$out .= "\n-- HTML->text courtesy HTML::FormatText::WithImgLinks --\n";
+	$out .= sprintf "Total/Ignore/Unknown = %s/%s/%s tags\n",$tcount,$tign,$tunk;
 	return $out;
 }
 
