@@ -892,7 +892,7 @@ parse
 	$out .= $f;
 	# add signature
 	my $localout = length($out);
-	$out .= "\n-- HTML->text courtesy HTML::FormatText::WithImgLinks --\n";
+	$out .= "\n-- HTML->text courtesy HTML::FormatText::WithImgLinks (by Todd Fries) --\n";
 	$out .= sprintf "In/Out = %d/%d bytes (%0.2f%%)  ", $localin, $localout,
 	    ($localout/$localin)*100;
 	$out .= sprintf "Total/Ignore/Unknown = %s/%s/%s tags\n",$tcount,$tign,$tunk;
