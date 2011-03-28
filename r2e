@@ -71,6 +71,12 @@ if (open(C, $config_file)) {
 if (!defined(${$conf{'XML'}}[0])) {
 	die "Failed to find XML in config $config_file";
 }
+if (!defined(${$conf{'email'}}[0])) {
+	die "Failed to find 'email' in config $config_file";
+}
+if (!defined(${$conf{'defaultfrom'}}[0])) {
+	${$conf{'defaultfrom'}}[0] = "r2e\@example.com";
+}
 
 our $inserted;
 
@@ -110,15 +116,20 @@ if ($verbose) {
 	$| = 1; # Enable autoflush, to help with ordered output/debugging
 }
 foreach my $URL (@{$conf{'XML'}}) {
-	my $content;
+	my ($content,$req,$res,$text);
 
 	printf STDERR "Requesting %s",$URL;
 
-	my $req = HTTP::Request->new(GET => $URL);
+	eval {
+		$req = HTTP::Request->new(GET => $URL);
 
-	my $res = $ua->request( $req );
+		$res = $ua->request( $req );
 
-	my $text = $res->content_ref;
+		$text = $res->content_ref;
+	};
+	if ($@) {
+		printf STDERR "Request error: $@\n";
+	}
 
 	my $feed;
 	$inserted = 0;
@@ -133,6 +144,7 @@ foreach my $URL (@{$conf{'XML'}}) {
 		printf STDERR " (new)";
 	}
 	printf STDERR "\n";
+	$text =~ s/\x{0d}$//g;
 	$content = decode('utf-8', $$text);
 	$feed = parsefeed($URL,$content);
 
@@ -174,7 +186,7 @@ foreach my $URL (@{$conf{'XML'}}) {
 	my $feedemail  = $feed->{rss}->{channel}->{dc}->{creator};
 	my $feedsubject = $feed->{rss}->{channel}->{dc}->{subject};
 	my $feedfromname = handletext($feed->language,$feed->title,0);
-	my $recipient = "todd\@t41.fries.net";
+	my $recipient = ${$conf{'email'}}[0];
 	printf STDERR "  ";
 	my $entrycount = 0;
 	my ($total_count,$dl_count,$found_count,$ignore_count)=(0,0,0,0);
@@ -249,7 +261,7 @@ foreach my $URL (@{$conf{'XML'}}) {
 		if (defined($feedemail)) {
 			$fromemail = $feedemail;
 		} else {
-			$fromemail = "r2e\@example.com";
+			$fromemail = ${$conf{'defaultfrom'}}[0];
 		}
 		my $fromname;
 		if (defined($feedfromname) && length($feedfromname) > 0) {
