@@ -28,6 +28,7 @@ use Date::Manip;
 use POSIX qw(strftime);
 use Digest::SHA qw/sha256_base64/;
 use Data::Dumper;
+use DateTime;
 
 use FDC::db;
 
@@ -71,6 +72,7 @@ if (!defined(${$conf{'XML'}}[0])) {
 	die "Failed to find XML in config $config_file";
 }
 
+our $inserted;
 
 my $ua = LWP::UserAgent->new();
 $ua->agent( "R2E/0.0 " . $ua->agent );
@@ -85,6 +87,7 @@ my $dbtab = "r2e_ids";
 my $dbfee = "r2e_feeds";
 my $create_dbtab = 1;
 my $create_feeds = 1;
+my ($feedcount,$feednew,$idcount,$idnew) = (0,0,0,0);
 foreach my $tname (@tables) {
 	if ($tname =~ m/\"${dbtab}\"/) {
 		$create_dbtab = 0;
@@ -94,12 +97,12 @@ foreach my $tname (@tables) {
 	}
 }
 my $query;
-if ($create_feeds) {
-	$query = "CREATE TABLE ${dbtab} (feedid integer, guid varchar(256))";
+if ($create_dbtab) {
+	$query = "CREATE TABLE ${dbtab} (feedid integer, guid varchar(256), cdate datestamp DEFAULT CURRENT_TIMESTAMP)";
 	$db->doquery($query);
 }
 if ($create_feeds) {
-	$query = "CREATE TABLE ${dbfee} (feedurl varchar(256))";
+	$query = "CREATE TABLE ${dbfee} (feedurl varchar(256), edate datestamp DEFAULT CURRENT_TIMESTAMP)";
 	$db->doquery($query);
 }
 
@@ -109,7 +112,7 @@ if ($verbose) {
 foreach my $URL (@{$conf{'XML'}}) {
 	my $content;
 
-	printf STDERR "Requesting %s\n",$URL;
+	printf STDERR "Requesting %s",$URL;
 
 	my $req = HTTP::Request->new(GET => $URL);
 
@@ -118,11 +121,18 @@ foreach my $URL (@{$conf{'XML'}}) {
 	my $text = $res->content_ref;
 
 	my $feed;
+	$inserted = 0;
 	my $feedid = feed_cache($db, $URL);
 	if (!defined($feedid)) {
-		printf STDERR "feed_cache failed!\n";
+		printf STDERR "\nfeed_cache('%s') failed!\n",$URL;
 		next;
 	}
+	$feedcount++;
+	if ($inserted) {
+		$feednew++;
+		printf STDERR " (new)";
+	}
+	printf STDERR "\n";
 	$content = decode('utf-8', $$text);
 	$feed = parsefeed($URL,$content);
 
@@ -163,7 +173,7 @@ foreach my $URL (@{$conf{'XML'}}) {
 	}
 	my $feedemail  = $feed->{rss}->{channel}->{dc}->{creator};
 	my $feedsubject = $feed->{rss}->{channel}->{dc}->{subject};
-	my $feedfromname = handletext($feed->language,$feed->title);
+	my $feedfromname = handletext($feed->language,$feed->title,0);
 	my $recipient = "todd\@t41.fries.net";
 	printf STDERR "  ";
 	my $entrycount = 0;
@@ -181,19 +191,52 @@ foreach my $URL (@{$conf{'XML'}}) {
 		$total_count++;
 		if ($verbose) {
 			printf STDERR "\n%d.",++$entrycount;
-		} else {
-			printf STDERR ".";
 		}
+		my $body = $entry->content->body;
+		if (!defined($body)) {
+			$body = $entry->summary->body;
+		}
+		if (!defined($body)) {
+			printf STDERR "empty body:\n";
+			$body = recurse_dump($entry);
+			printf STDERR "%s\n",$body;
+		}
+
 		my $guid = $entry->id();
 		if (!defined($guid)) {
 			$guid = $entry->{entry}->{guid};
 		}
+		if (!defined($guid)) {
+			$guid = $entry->link();
+		}
+		if (!defined($guid)) {
+			printf STDERR "entry guid not locatable!\n";
+			printf STDERR "%s\n",d($entry);
+			$guid = sha256_base64($body);
+		}
 		my $guid_sha = sha256_base64($guid);
-		if (guid_seen($db,$feedid,$guid_sha)) {
+		$inserted = 0;
+		guid_cache($db,$feedid,$guid_sha);
+		if ($inserted == 0) {
+			if ($verbose == 0) {
+				printf STDERR ".";
+			}
 			next;
+		}
+		if ($verbose == 0) {
+			printf STDERR "+";
 		}
 		my $link = $entry->link();
 		my $datetime = $entry->issued();
+		if (!defined($datetime)) {
+			$datetime = $entry->modified();
+		}
+		if (!defined($datetime)) {
+			$datetime = $entry->modified();
+		}
+		if (!defined($datetime)) {
+			$datetime = DateTime->now();
+		}
 		$datetime->set_time_zone("US/Central");
 		my $date = $datetime->strftime(
 	    		"%a, %d %b %Y %H:%M:%S %z");
@@ -243,23 +286,22 @@ foreach my $URL (@{$conf{'XML'}}) {
 			printf STDERR "from %s\n%d.",decode('utf-8',$fromstr),
 			    $entrycount;
 		}
-		my $body = $entry->content->body;
-
-		# make browsing the result useful in a portable way
-		$body =~ s@(href|src|data)="/@$1="$site/@gs;
-		$body =~ s@(href|src|data)="(?!(http|ftp))@$1="$base/@gs;
-
-		$body = handletext($feed->language,$body);
 
 		my $title = $entry->title;
 		#$title =~ s/^\s+(.*)\s+$//s;
 
 		# !title = !save
 		$title = "(untitled)" if ! defined($title);
-		$title = handletext($feed->language,$title);
+		$title = handletext($feed->language,$title,0);
 
 		$title =~ s/[[:space:]][[:space:]]*/ /gs;
 		$title =~ s/^"(.*)"$/$1/g;
+
+		# make browsing the result useful in a portable way
+		$body =~ s@(href|src|data)="/@$1="$site/@gs;
+		$body =~ s@(href|src|data)="(?!(http|ftp))@$1="$base/@gs;
+
+		$body = handletext($feed->language,$body,1);
 		if (compare($body,$title) && length($title) > 65) {
 			$title = substr($title,0,55)."...";
 		}
@@ -393,6 +435,7 @@ foreach my $URL (@{$conf{'XML'}}) {
 		} else {
 			#open(MAIL,">>/dev/null");
 			open(MAIL,"|/usr/sbin/sendmail $recipient");
+			#open(MAIL,">>/dev/stdout");
 		}
 		printf MAIL "%s",encode('utf-8',$mailstr);
 		close(MAIL);
@@ -432,15 +475,15 @@ parsefeed
 sub
 handletext
 {
-	my ($cset,$text) = @_;
+	my ($cset,$text,$wordwrap) = @_;
 	my $r = "";
 	eval {
 		my $tdebug = 0;
-		if ($tdebug) {
+		if ($tdebug > 0 ) {
 			printf STDERR "Input : '%s'\n",$text;
 		}
-		$r = parse_to_text($cset,encode('UTF-8',$text));
-		if ($tdebug) {
+		$r = parse_to_text($cset,encode('UTF-8',$text),$wordwrap);
+		if ($tdebug > 0) {
 			foreach my $lang (('iso-8859-1','iso-8859-2',
 			    'iso-8859-16','ascii','ascii-ctrl','utf-8')) {
 				printf STDERR "Output: '%s'(%s)\n",
@@ -456,11 +499,16 @@ handletext
 sub
 parse_to_text
 {
-	my ($rsscset,$text) = @_;
+	my ($rsscset,$text,$wordwrap) = @_;
 
-	my $f = HTML::FormatText::WithImgLinks->new($rsscset);
-	$text = $f->parse($text);
-	$f = undef;
+	my $f = HTML::FormatText::WithImgLinks->new($rsscset,$wordwrap);
+	eval {
+		$text = $f->parse($text);
+		$f = undef;
+	};
+	if ($@ || !defined($text)) {
+		printf STDERR "parse error: $@\n";
+	}
 
 	return $text;
 }
@@ -533,19 +581,40 @@ sub
 guid_seen {
 	my ($db,$feedid,$sha) = @_;
 	my $query = sprintf("SELECT rowid from %s where feedid = %d and guid = '%s'",$dbtab,$feedid,$sha);
-	#printf "guid_seen: query=\"%s\"\n",$query;
+	if ($verbose > 0) {
+		printf STDERR "guid_seen: query=\"%s\"\n",$query;
+	}
 	my $sth = $db->doquery($query);
 	if (defined($sth) && $sth != -1) {
-		#my $oid = $sth->fetchrow_array;
-		#printf "guid_seen: query returned %s\n",$oid;
+		my $oid = $sth->fetchrow_array;
+		if ($verbose > 0) {
+			printf STDERR "_guid_seen: query returned %s\n",$oid;
+		}
 		$sth->finish;
-		return 1;
+		if (!defined($oid)) {
+			return -1;
+		}
+		return $oid;
+	}
+	return -1;
+}
+
+sub
+guid_cache {
+	my ($db,$feedid,$sha) = @_;
+	my $oid = guid_seen($db, $feedid, $sha);
+	if ($oid > 0) {
+		return $oid;
 	}
 	#printf "guid_seen: query returned %s\n",$oid;
-	$sth = $db->doquery("INSERT INTO ${dbtab} ".
-	    "(feedid, guid) VALUES ($feedid, '$sha')");
+	my $query = sprintf "INSERT INTO %s (feedid, guid) VALUES (%d, '%s')",$dbtab,$feedid,$sha;
+	if ($verbose > 0) {
+		printf STDERR "guid_seen: %s\n",$query;
+	}
+	my $sth = $db->doquery($query);
 	$sth->finish;
-	return 0;
+	$inserted=1;
+	return guid_seen($db, $feedid, $sha);
 }
 
 sub
@@ -554,22 +623,33 @@ feed_cache {
 	my $query = "SELECT rowid from ${dbfee} ".
 	    "where feedurl = '$feedurl'";
 	my $sth = $db->doquery($query);
-	#printf "feed_cache: query='%s' returned %s\n",$query,$sth;
+	if ($verbose > 0) {
+		printf STDERR "feed_cache: query='%s' returned %s\n",$query,$sth;
+	}
 	if (defined($sth) && $sth != -1) {
 		my ($oid) = $sth->fetchrow_array;
 		$sth->finish;
 		if (defined($oid)) {
 			if ($oid < 1) {
 				printf STDERR "Found rowid %d => %s\n",$oid,$feedurl;
+			} else {
+				if ($verbose > 0 ) {
+					printf STDERR "Found rowid %d => %s\n",$oid,$feedurl;
+				}
 				return $oid;
 			}
 		}
-		#printf STDERR "Undefined rowid returned %s\n",$feedurl;
+		if ($verbose > 0) {
+			printf STDERR "Undefined rowid returned %s\n",$feedurl;
+		}
 	}
 	$db->do_oneret_query("INSERT INTO ${dbfee} ".
 	    "(feedurl) VALUES ('$feedurl')");
 	my $oid = $dbh->last_insert_id("","","","");
-	printf STDERR "Inserted rowid %d => %s\n",$oid,$feedurl;
+	if ($verbose > 0) {
+		printf STDERR "Inserted rowid %d => %s\n",$oid,$feedurl;
+	}
+	$inserted=1;
 	return $oid;
 }
 
