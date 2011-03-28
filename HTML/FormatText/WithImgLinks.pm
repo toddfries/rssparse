@@ -632,7 +632,19 @@ parse
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^(e:footer|col)/i) {
+			if ($t->[1] =~ m/^(e:footer|col|del|tt|dt|dl)/i) {
+				$tign++;
+				next;
+			}
+			if ($t->[1] =~ m/^(wbr|t|bold|break|insert|h)/i) {
+				$tign++;
+				next;
+			}
+			if ($t->[1] =~ m/^(screenshot|dd|user|is)/i) {
+				$tign++;
+				next;
+			}
+			if ($t->[1] =~ m/^(adscheduletarget)/i) {
 				$tign++;
 				next;
 			}
@@ -704,7 +716,19 @@ parse
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^(e:footer)/i) {
+			if ($t->[1] =~ m/^(e:footer|col|del|tt|dt|dl|strike)/i) {
+				$tign++;
+				next;
+			}
+			if ($t->[1] =~ m/^(wbr|t|photo|audio|bold|insert|h)/i) {
+				$tign++;
+				next;
+			}
+			if ($t->[1] =~ m/^(screenshot|dd|user|is)/i) {
+				$tign++;
+				next;
+			}
+			if ($t->[1] =~ m/^(adscheduletarget|cite|docs)/i) {
 				$tign++;
 				next;
 			}
@@ -891,11 +915,13 @@ parse
 	# add footnotes
 	$out .= $f;
 	# add signature
-	my $localout = length($out);
-	$out .= "\n-- HTML->text courtesy HTML::FormatText::WithImgLinks (by Todd Fries) --\n";
-	$out .= sprintf "In/Out = %d/%d bytes (%0.2f%%)  ", $localin, $localout,
-	    ($localout/$localin)*100;
-	$out .= sprintf "Total/Ignore/Unknown = %s/%s/%s tags\n",$tcount,$tign,$tunk;
+	if ($self->{wordwrap}) {
+		my $localout = length($out);
+		$out .= "\n-- HTML->text courtesy HTML::FormatText::WithImgLinks (by Todd Fries) --\n";
+		$out .= sprintf "In/Out = %d/%d bytes (%0.2f%%)  ", $localin, $localout,
+		    ($localout/$localin)*100;
+		$out .= sprintf "Total/Ignore/Unknown = %s/%s/%s tags\n",$tcount,$tign,$tunk;
+	}
 	return $out;
 }
 
