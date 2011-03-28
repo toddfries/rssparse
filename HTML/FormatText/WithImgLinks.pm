@@ -644,7 +644,7 @@ parse
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^(adscheduletarget)/i) {
+			if ($t->[1] =~ m/^(adscheduletarget|strike)/i) {
 				$tign++;
 				next;
 			}
