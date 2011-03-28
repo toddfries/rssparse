@@ -24,7 +24,7 @@ recode
 
 	foreach my $debugline ((
 		#'Springing.*New Shopping.*Google',
-		'Kyle came in second and Bristol',
+		#'Kyle came in second and Bristol',
 	)) {
 		if ($text =~ /$debugline/) {
 			$utfdebug = 1;
