@@ -129,6 +129,7 @@ foreach my $URL (@{$conf{'XML'}}) {
 	};
 	if ($@) {
 		printf STDERR "Request error: $@\n";
+		next;
 	}
 
 	my $feed;
