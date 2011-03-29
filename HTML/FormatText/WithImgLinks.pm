@@ -648,7 +648,7 @@ parse
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^(caption|ins|sub|noscript)/i) {
+			if ($t->[1] =~ m/^(caption|ins|sub|noscript|s)/i) {
 				$tign++;
 				next;
 			}
@@ -736,7 +736,7 @@ parse
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^(caption|ins|sub|noscript)/i) {
+			if ($t->[1] =~ m/^(caption|ins|sub|noscript|s)/i) {
 				$tign++;
 				next;
 			}
