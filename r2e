@@ -25,10 +25,21 @@ use LWP::UserAgent;
 use HTML::FormatText::WithImgLinks;
 use Encode qw( encode decode );
 use Date::Manip;
+use DateTime;
+our $dtfdmanip = 1;
+#eval {
+#	require DateTime::Format::DateManip;
+#};
+#if ($@) {
+	$dtfdmanip = 0;
+#} else {
+#	use DateTime::Format::DateManip;
+#}
+	
 use POSIX qw(strftime);
+use POSIX ":sys_wait_h";
 use Digest::SHA qw/sha256_base64/;
 use Data::Dumper;
-use DateTime;
 
 use FDC::db;
 
@@ -48,6 +59,10 @@ our $opt_v = 0;
 getopts('v');
 
 my $verbose = $opt_v;
+
+our %children;
+our $entrypid = 0;
+our $forkdebug = 0;
 
 my $config_file = $ENV{'HOME'}."/.r2e.conf";
 my %conf;
@@ -77,14 +92,19 @@ if (!defined(${$conf{'email'}}[0])) {
 if (!defined(${$conf{'defaultfrom'}}[0])) {
 	${$conf{'defaultfrom'}}[0] = "r2e\@example.com";
 }
+if (!defined(${$conf{'max_concurrency'}}[0])) {
+	${$conf{'max_concurrency'}}[0] = 3;
+}
 
 our $inserted;
+our $insertactioncount;
+our $skipactioncount;
 
 my $ua = LWP::UserAgent->new();
 $ua->agent( "R2E/0.0 " . $ua->agent );
 $ua->env_proxy();
 
-my $dsn = "dbi:SQLite:dbname=$ENV{'HOME'}/.r2e.db";
+our $dsn = "dbi:SQLite:dbname=$ENV{'HOME'}/.r2e.db";
 
 my $db = FDC::db->new($dsn,"","");
 my $dbh = $db->getdbh();
@@ -111,14 +131,35 @@ if ($create_feeds) {
 	$query = "CREATE TABLE ${dbfee} (feedurl varchar(256), edate datestamp DEFAULT CURRENT_TIMESTAMP)";
 	$db->doquery($query);
 }
+#$dbh->disconnect;
+$db = undef;
 
 if ($verbose) {
 	$| = 1; # Enable autoflush, to help with ordered output/debugging
 }
 foreach my $URL (@{$conf{'XML'}}) {
-	my ($content,$req,$res,$text);
+	my ($content,$req,$res,$text,$feed);
 
-	printf STDERR "Requesting %s",$URL;
+	$inserted = 0;
+	my $feedid = feed_cache($URL);
+	if (!defined($feedid)) {
+		printf STDERR "\nfeed_cache('%s') failed!\n",$URL;
+		next;
+	}
+	printf STDERR "%4d: %s",$feedid,$URL;
+	$feedcount++;
+	if ($inserted) {
+		$feednew++;
+		printf STDERR " (new)";
+	}
+	printf STDERR "\n";
+
+	if ($verbose == 0) {
+		$entrypid = rlfork();
+		if ($entrypid > 0) {
+			next;
+		}
+	}
 
 	eval {
 		$req = HTTP::Request->new(GET => $URL);
@@ -132,19 +173,6 @@ foreach my $URL (@{$conf{'XML'}}) {
 		next;
 	}
 
-	my $feed;
-	$inserted = 0;
-	my $feedid = feed_cache($db, $URL);
-	if (!defined($feedid)) {
-		printf STDERR "\nfeed_cache('%s') failed!\n",$URL;
-		next;
-	}
-	$feedcount++;
-	if ($inserted) {
-		$feednew++;
-		printf STDERR " (new)";
-	}
-	printf STDERR "\n";
 	$text =~ s/\x{0d}$//g;
 	$content = decode('utf-8', $$text);
 	$feed = parsefeed($URL,$content);
@@ -166,8 +194,6 @@ foreach my $URL (@{$conf{'XML'}}) {
 	my ($site) = $URL =~ m@^(.*://?[^/]+)/@;
 	my ($base) = $URL =~ m@^(.*://?.+)/@;
 
-	my $i = 0;
-
 	if (0) {
 	if (defined($feed->{atom}->{elem})) {
 		my $tmpfeed = $feed->convert('RSS', version => '2.0');
@@ -188,7 +214,6 @@ foreach my $URL (@{$conf{'XML'}}) {
 	my $feedsubject = $feed->{rss}->{channel}->{dc}->{subject};
 	my $feedfromname = handletext($feed->language,$feed->title,0);
 	my $recipient = ${$conf{'email'}}[0];
-	printf STDERR "  ";
 	my $entrycount = 0;
 	my ($total_count,$dl_count,$found_count,$ignore_count)=(0,0,0,0);
 	if ($verbose) {
@@ -200,6 +225,7 @@ foreach my $URL (@{$conf{'XML'}}) {
 		}
 		}
 	}
+	$skipactioncount = $insertactioncount = 0;
 	for my $entry ($feed->entries) {
 		$total_count++;
 		if ($verbose) {
@@ -223,29 +249,29 @@ foreach my $URL (@{$conf{'XML'}}) {
 			$guid = $entry->link();
 		}
 		if (!defined($guid)) {
-			printf STDERR "entry guid not locatable!\n";
-			printf STDERR "%s\n",d($entry);
+			if ($verbose > 0) {
+				printf STDERR "entry guid not locatable!\n";
+				printf STDERR "%s\n",recurse_dump($entry);
+			}
 			$guid = sha256_base64($body);
 		}
 		my $guid_sha = sha256_base64($guid);
 		$inserted = 0;
-		guid_cache($db,$feedid,$guid_sha);
+		guid_cache($feedid,$guid_sha);
 		if ($inserted == 0) {
-			if ($verbose == 0) {
-				printf STDERR ".";
-			}
+			$skipactioncount++;
 			next;
 		}
-		if ($verbose == 0) {
-			printf STDERR "+";
-		}
+		$insertactioncount++;
 		my $link = $entry->link();
 		my $datetime = $entry->issued();
 		if (!defined($datetime)) {
 			$datetime = $entry->modified();
 		}
-		if (!defined($datetime)) {
-			$datetime = $entry->modified();
+		if (!defined($datetime) && defined($entry->{'pubDate'}) && $dtfdmanip == 1 ) {
+			my $pubDate = $entry->{'pubDate'};
+			my $dm = ParseDate($pubDate);
+			$datetime = DateTime::Format::DateManip->parse_datetime($dm);
 		}
 		if (!defined($datetime)) {
 			$datetime = DateTime->now();
@@ -443,19 +469,52 @@ foreach my $URL (@{$conf{'XML'}}) {
 			print STDERR recurse_dump($entry);
 		}
 		$mailstr .= "\n";
-		if ($verbose) {
-			open(MAIL,">>/dev/stdout");
+		my $pid;
+		if ($verbose > 0) {
+			$pid = 0;
 		} else {
-			#open(MAIL,">>/dev/null");
-			open(MAIL,"|/usr/sbin/sendmail $recipient");
-			#open(MAIL,">>/dev/stdout");
+			$pid = rlfork();
 		}
-		printf MAIL "%s",encode('utf-8',$mailstr);
-		close(MAIL);
-		$i++;
+		if ($pid == 0) {
+			if ($verbose > 0) {
+				open(MAIL,">>/dev/stdout");
+			} else {
+				#open(MAIL,">>/dev/null");
+				open(MAIL,"|/usr/sbin/sendmail $recipient");
+				#open(MAIL,">>/dev/stdout");
+			}
+			printf MAIL "%s",encode('utf-8',$mailstr);
+			close(MAIL);
+			if ($verbose == 0) {
+				# Since this is a child...
+				exit(0);
+			}
+		}
 	}
-	printf STDERR "\n";
+	action_show($feedid);
+	if ($verbose == 0) {
+		# Since this is a child...
+		exit(0);
+	}
 }
+
+my $childcount;
+do {
+	$childcount = scalar keys %children;
+	if ($childcount > 0) {
+		for my $kid (keys %children) {
+			printf STDERR "Waiting for %d to exit...\n",$kid;
+			waitpid($kid, 0);
+			# only one iteration to reduce racing, suggestions
+			# on how to eliminate welcomed
+			last;
+		}
+	}
+} while ($childcount > 0);
+
+exit(0);
+
+1;
 
 sub
 parsefeed
@@ -601,7 +660,30 @@ guid_seen {
 	if (defined($sth) && $sth != -1) {
 		my $oid = $sth->fetchrow_array;
 		if ($verbose > 0) {
-			printf STDERR "_guid_seen: query returned %s\n",$oid;
+			printf STDERR "guid_seen: query returned %s\n",$oid;
+		}
+		$sth->finish;
+		if (!defined($oid)) {
+			return -1;
+		}
+		return $oid;
+	}
+	return -1;
+}
+
+sub
+feed_seen {
+	my ($db, $feedurl) = @_;
+	my $query = sprintf "SELECT rowid from %s where feedurl = '%s'",
+		$dbfee, $feedurl;
+	if ($verbose > 0) {
+		printf STDERR "feed_seen: query=\"%s\"\n",$query;
+	}
+	my $sth = $db->doquery($query);
+	if (defined($sth) && $sth != -1) {
+		my $oid = $sth->fetchrow_array;
+		if ($verbose > 0) {
+			printf STDERR "feed_seen: query returned %s\n",$oid;
 		}
 		$sth->finish;
 		if (!defined($oid)) {
@@ -614,9 +696,11 @@ guid_seen {
 
 sub
 guid_cache {
-	my ($db,$feedid,$sha) = @_;
+	my ($feedid,$sha) = @_;
+	my $db = FDC::db->new($dsn,"","");
 	my $oid = guid_seen($db, $feedid, $sha);
 	if ($oid > 0) {
+		$db = undef;
 		return $oid;
 	}
 	#printf "guid_seen: query returned %s\n",$oid;
@@ -627,43 +711,86 @@ guid_cache {
 	my $sth = $db->doquery($query);
 	$sth->finish;
 	$inserted=1;
-	return guid_seen($db, $feedid, $sha);
+	$oid = guid_seen($db, $feedid, $sha);
+	$db = undef;
+	return $oid;
 }
 
 sub
 feed_cache {
-	my ($db,$feedurl) = @_;
-	my $query = "SELECT rowid from ${dbfee} ".
-	    "where feedurl = '$feedurl'";
+	my ($feedurl) = @_;
+	my $db = FDC::db->new($dsn,"","");
+	my $oid = feed_seen($db, $feedurl);
+	if ($oid > 0) {
+		$db = undef;
+		return $oid;
+	}
+	my $query = sprintf "INSERT INTO %s (feedurl) VALUES ('%s')",
+	    $dbfee, $feedurl;
 	my $sth = $db->doquery($query);
-	if ($verbose > 0) {
-		printf STDERR "feed_cache: query='%s' returned %s\n",$query,$sth;
-	}
-	if (defined($sth) && $sth != -1) {
-		my ($oid) = $sth->fetchrow_array;
-		$sth->finish;
-		if (defined($oid)) {
-			if ($oid < 1) {
-				printf STDERR "Found rowid %d => %s\n",$oid,$feedurl;
-			} else {
-				if ($verbose > 0 ) {
-					printf STDERR "Found rowid %d => %s\n",$oid,$feedurl;
-				}
-				return $oid;
-			}
-		}
-		if ($verbose > 0) {
-			printf STDERR "Undefined rowid returned %s\n",$feedurl;
-		}
-	}
-	$db->do_oneret_query("INSERT INTO ${dbfee} ".
-	    "(feedurl) VALUES ('$feedurl')");
-	my $oid = $dbh->last_insert_id("","","","");
-	if ($verbose > 0) {
-		printf STDERR "Inserted rowid %d => %s\n",$oid,$feedurl;
-	}
+	$sth->finish;
+	$oid = feed_seen($db,$feedurl);
 	$inserted=1;
+	$db = undef;
 	return $oid;
 }
 
-1;
+# Rate Limited Fork
+sub
+rlfork
+{
+	$SIG{CHLD} = \&REAPER;
+	my $childcount = scalar keys %children;
+	while ($childcount >= ${$conf{'max_concurrency'}}[0]) {
+		if ($verbose > 0 || $forkdebug > 0) {
+			printf STDERR "%d Parent[%d] z{%d}\n",($entrypid>0)?1:0,$$,$childcount;
+		}
+		sleep(1);
+		$childcount = scalar keys %children;
+	}
+	my $pid = fork();
+	die "Fork: $!\n" unless defined $pid;
+	if ($pid > 0) {
+		if ($verbose > 0 || $forkdebug > 0) {
+			printf STDERR "%d Parent[%d] +Child[%d] = %d children\n",
+			    ($entrypid>0)?1:0,$$,$pid,$childcount+1;
+		}
+		$children{$pid}=1;
+	} else {
+		# children don't need to know siblings, do they?
+		if (1) {
+			if ($pid == 0) {
+				%children = ( );
+			}
+		}
+	}
+	return $pid;
+}
+
+# bits from perlipc(1)
+sub REAPER {
+	# don't change $! and $?
+	local ($!, $?);
+	my $child;
+	while (($child = waitpid(-1, WNOHANG)) > 0) {
+		if (defined($children{$child})) {
+			if ($verbose > 0 || $forkdebug > 0) {
+				printf STDERR "%d Parent[%d] -Child[%d]\n",($entrypid>0)?1:0,$$,$child;
+			}
+			delete $children{$child};
+		} else {
+			if ($verbose > 0 || $forkdebug > 0) {
+				printf STDERR "%d Parent[%d] -Orphan[%d]\n",($entrypid>0)?1:0,$$,$child;
+			}
+		}
+	}
+	$SIG{CHLD} = \&REAPER;
+}
+
+sub
+action_show {
+	my ($feedid) = @_;
+	printf STDERR "%4d: Inserted/Skipped = %4d/%4d\n", $feedid,
+	    $insertactioncount, $skipactioncount;
+}
+
