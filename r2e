@@ -276,11 +276,12 @@ foreach my $URL (@URLS) {
 	$content = undef;
 	if (!defined($feed)) {
 		printf STDERR "%s: !feed\n",$URL;
-		printf STDERR "%s: text = '%s'\n",$URL,$$text;
-		if ($verbose == 0) {
+		if ($verbose > 0 ) {
+			printf STDERR "%s: text = '%s'\n",$URL,$$text;
+			next;
+		} else {
 			exit(0);
 		}
-		next;
 	}
 
 	my ($site) = $URL =~ m@^(.*://?[^/]+)/@;
