@@ -207,6 +207,9 @@ while(my $URL = $sth->fetchrow_array) {
 }
 $db = undef;
 
+my $i = 0;
+printf STDERR "About to handle %d URLs\n",$#URLS;
+
 foreach my $URL (@URLS) {
 	my ($content,$req,$res,$text,$feed);
 
@@ -217,11 +220,20 @@ foreach my $URL (@URLS) {
 	}
 	$feedcount++;
 
+	printf STDERR "%4d: %s start[$$] %d\n", $feedid, $URL, $i++;
+	if ($verbose > 0 || $forkdebug > 0) {
+		printf STDERR "    [Parent[$$], Children: %d\n",scalar keys %children;
+	}
+
 	if ($verbose == 0) {
 		$entrypid = rlfork();
 		if ($entrypid > 0) {
 			next;
 		}
+		@URLS = ();
+	}
+	if ($verbose > 0 || $forkdebug > 0) {
+		printf STDERR "%4d: %s (processing[$$])\n", $feedid, $URL;
 	}
 
 	eval {
@@ -233,11 +245,20 @@ foreach my $URL (@URLS) {
 	};
 	if ($@) {
 		printf STDERR "Request error: $@\n";
+		if ($verbose == 0) {
+			exit(0);
+		}
 		next;
 	}
 	if ($$text =~ m/^[0-9]{1,3} /) {
 		printf STDERR "HTTP error: %s\n",$$text;
+		if ($verbose == 0) {
+			exit(0);
+		}
 		next;
+	}
+	if ($verbose > 0 || $forkdebug > 0) {
+		printf STDERR "%4d: %s (retrieved[$$])\n", $feedid, $URL;
 	}
 
 	$text =~ s/\x{0d}$//g;
@@ -255,19 +276,25 @@ foreach my $URL (@URLS) {
 	$content = undef;
 	if (!defined($feed)) {
 		printf STDERR "%s: !feed\n",$URL;
+		printf STDERR "%s: text = '%s'\n",$URL,$$text;
+		if ($verbose == 0) {
+			exit(0);
+		}
 		next;
 	}
 
 	my ($site) = $URL =~ m@^(.*://?[^/]+)/@;
 	my ($base) = $URL =~ m@^(.*://?.+)/@;
 
-	if (0) {
-	if (defined($feed->{atom}->{elem})) {
-		my $tmpfeed = $feed->convert('RSS', version => '2.0');
-		$feed = $tmpfeed;
-		$tmpfeed = undef;
+	#printf "%4d: is a %s\n",$feedid,ref($feed);
+	if (ref($feed) eq "XML::Feed::Format::Atom") {
+		if (defined($feed->{atom}->{elem})) {
+			my $tmpfeed = $feed->convert('RSS', version => '2.0');
+			$feed = $tmpfeed;
+			$tmpfeed = undef;
+		}
 	}
-	}
+	#printf "%4d: is a %s\n",$feedid,ref($feed);
 	my $feedauthor = $feed->author();
 	if (!defined($feedauthor)) {
 		$feedauthor = $feed->{rss}->{channel}->{dc}->{creator};
@@ -280,6 +307,7 @@ foreach my $URL (@URLS) {
 	my $feedemail  = $feed->{rss}->{channel}->{dc}->{creator};
 	my $feedsubject = $feed->{rss}->{channel}->{dc}->{subject};
 	my $feedfromname = handletext($feed->language,$feed->title,0);
+	my $feedlanguage = $feed->language;
 	my $recipient = ${$conf{'email'}}[0];
 	my $entrycount = 0;
 	my ($total_count,$dl_count,$found_count,$ignore_count)=(0,0,0,0);
@@ -298,23 +326,21 @@ foreach my $URL (@URLS) {
 		if ($verbose) {
 			printf STDERR "\n%d.",++$entrycount;
 		}
-		my $pid;
-		if ($verbose > 0) {
-			$pid = 0;
-		} else {
-			$pid = rlfork();
-		}
-		if ($pid > 0) {
-			next;
-		}
 		my $body = $entry->content->body;
 		if (!defined($body)) {
 			$body = $entry->summary->body;
 		}
 		if (!defined($body)) {
+			$body = $entry->{'content'};
+		}
+		if (!defined($body)) {
+			$body = $entry->{'title'};
+		}
+		if (!defined($body)) {
 			printf STDERR "empty body:\n";
 			$body = recurse_dump($entry);
 			printf STDERR "%s\n",$body;
+			printf STDERR "entry is a %s\n",ref($entry);
 		}
 
 		my $guid = $entry->id();
@@ -339,6 +365,19 @@ foreach my $URL (@URLS) {
 			next;
 		}
 		$insertactioncount++;
+
+		# XXX no sooner, so stats can be preserved
+		my $pid;
+		if ($verbose == 0) {
+			$pid = rlfork();
+			if ($pid > 0) {
+				next;
+			}
+			$req = $res = $text = $feed = undef;
+		} else {
+			$pid = 0;
+		}
+
 		my $link = $entry->link();
 		my $datetime = $entry->issued();
 		if (!defined($datetime)) {
@@ -407,7 +446,7 @@ foreach my $URL (@URLS) {
 
 		# !title = !save
 		$title = "(untitled)" if ! defined($title);
-		$title = handletext($feed->language,$title,0);
+		$title = handletext($feedlanguage,$title,0);
 
 		$title =~ s/[[:space:]][[:space:]]*/ /gs;
 		$title =~ s/^"(.*)"$/$1/g;
@@ -416,7 +455,7 @@ foreach my $URL (@URLS) {
 		$body =~ s@(href|src|data)="/@$1="$site/@gs;
 		$body =~ s@(href|src|data)="(?!(http|ftp))@$1="$base/@gs;
 
-		$body = handletext($feed->language,$body,1);
+		$body = handletext($feedlanguage,$body,1);
 		if (compare($body,$title) && length($title) > 65) {
 			$title = substr($title,0,55)."...";
 		}
