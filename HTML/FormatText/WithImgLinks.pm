@@ -652,8 +652,12 @@ parse
 				$tign++;
 				next;
 			}
+			if ($t->[1] =~ m/^(event)/i) {
+				$tign++;
+				next;
+			}
 			$tunk++;
-			printf STDERR "parse: unhandled start tag: %s\n",
+			printf STDERR "parse: unhandled start tag: '%s'\n",
 			    $t->[1];
 			next;
 		}
@@ -740,8 +744,12 @@ parse
 				$tign++;
 				next;
 			}
+			if ($t->[1] =~ m/^(atom:entry|apps:property)/i) {
+				$tign++;
+				next;
+			}
 			$tunk++;
-			printf STDERR "parse: unhandled end tag: %s\n",
+			printf STDERR "parse: unhandled end tag: '%s'\n",
 			    $t->[1];
 			next;
 		}
