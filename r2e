@@ -337,10 +337,12 @@ foreach my $URL (@URLS) {
 			$body = $entry->{'title'};
 		}
 		if (!defined($body)) {
-			printf STDERR "empty body:\n";
-			$body = recurse_dump($entry);
-			printf STDERR "%s\n",$body;
-			printf STDERR "entry is a %s\n",ref($entry);
+			if ($verbose > 0) {
+				printf STDERR "empty body:\n";
+				$body = recurse_dump($entry);
+				printf STDERR "%s\n",$body;
+				printf STDERR "entry is a %s\n",ref($entry);
+			}
 		}
 
 		my $guid = $entry->id();
