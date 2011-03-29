@@ -172,23 +172,6 @@ if (defined($opt_a) && length($opt_a) > 0) {
 	exit(0);
 }
 
-
-foreach my $URL (@{$conf{'XML'}}) {
-	$inserted = 0;
-	my $feedid = feed_cache($URL);
-	if (!defined($feedid)) {
-		printf STDERR "\nfeed_cache('%s') failed!\n",$URL;
-		next;
-	}
-	my $output = sprintf "%4d: %s",$feedid,$URL;
-	$feedcount++;
-	if ($inserted) {
-		$feednew++;
-		$output .= " (new)";
-	}
-	printf STDERR "%d\n",$output;
-}
-
 $db = FDC::db->new($dsn,"","");
 
 $query = "SELECT feedurl from ${dbfee}";
