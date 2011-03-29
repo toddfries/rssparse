@@ -503,9 +503,11 @@ do {
 	$childcount = scalar keys %children;
 	if ($childcount > 0) {
 		for my $kid (keys %children) {
-			printf STDERR "Waiting for %d to exit...\n",$kid;
+			if ($verbose > 0 || $forkdebug > 0) {
+				printf STDERR "Waiting for %d to exit...\n",$kid;
+			}
 			waitpid($kid, 0);
-			# only one iteration to reduce racing, suggestions
+			# only one iteration to reduce racing chances, suggestions
 			# on how to eliminate welcomed
 			last;
 		}
