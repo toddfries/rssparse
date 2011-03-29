@@ -56,9 +56,16 @@ $XML::Feed::MULTIPLE_ENCLOSURES=1;
 use OpenBSD::Getopt;
 
 our $opt_v = 0;
-getopts('v');
+our $opt_a;
+our $opt_p = 0;
+our $opt_d;
+our $opt_r;
+getopts('a:d:pr:v');
 
 my $verbose = $opt_v;
+if ($verbose) {
+	$| = 1; # Enable autoflush, to help with ordered output/debugging
+}
 
 our %children;
 our $entrypid = 0;
@@ -83,9 +90,6 @@ if (open(C, $config_file)) {
 	die "Failed to open config $config_file: $!";
 }
 
-if (!defined(${$conf{'XML'}}[0])) {
-	die "Failed to find XML in config $config_file";
-}
 if (!defined(${$conf{'email'}}[0])) {
 	die "Failed to find 'email' in config $config_file";
 }
@@ -106,6 +110,7 @@ $ua->env_proxy();
 
 our $dsn = "dbi:SQLite:dbname=$ENV{'HOME'}/.r2e.db";
 
+my @URLS;
 my $db = FDC::db->new($dsn,"","");
 my $dbh = $db->getdbh();
 my @tables = $dbh->tables();
@@ -131,28 +136,86 @@ if ($create_feeds) {
 	$query = "CREATE TABLE ${dbfee} (feedurl varchar(256), edate datestamp DEFAULT CURRENT_TIMESTAMP)";
 	$db->doquery($query);
 }
-#$dbh->disconnect;
+
+if ($opt_p > 0) {
+	$query = "SELECT rowid,* from ${dbfee}";
+	my $sth = $db->doquery($query);
+	if (defined($sth) && $sth != -1) {
+		while (my ($id,$url) = $sth->fetchrow_array) {
+			printf "%4d: %s\n",$id,$url;
+		}
+		$sth->finish;
+	}
+	exit(0);
+}
+if (defined($opt_d)) {
+	if ($opt_d < 1) {
+		die "'-d <id>' to delete an id, invalid syntax: $opt_d";
+	}
+	$query = "SELECT rowid,feedurl from ${dbfee} where rowid = $opt_d";
+	my $sth = $db->doquery($query);
+	my ($rowid,$feedurl) = $sth->fetchrow_array;
+	$query = "DELETE from ${dbfee} where rowid = $opt_d";
+	$db->doquery($query);
+	$query = "DELETE from ${dbtab} where feedid = $opt_d";
+	$sth = $db->doquery($query);
+	if (!defined($sth) || $sth == -1 || !defined($rowid) || !defined($feedurl)) {
+		printf STDERR "Unable to delete id %s: $!\n",$opt_d;
+		exit(1);
+	}
+	printf STDERR "%4d: %s (deleted, rowid = %d)\n",$opt_d,$feedurl,$rowid;
+	exit(0);
+}
+
+if (defined($opt_a) && length($opt_a) > 0) {
+	$db = undef;
+	$inserted = 0;
+	my $feedid = feed_cache($opt_a);
+	if (!defined($feedid)) {
+		printf STDERR "\nfeed_cache('%s') failed!\n",$opt_a;
+		next;
+	}
+	my $action="";
+	if ($inserted == 0) {
+		$action = "duplicate";
+	} else {
+		$action = "added";
+	}
+	printf "%4d: %s (%s)\n",$feedid,$opt_a,$action;
+	exit(0);
+}
+
+$query = "SELECT feedurl from ${dbfee}";
+if (defined($opt_r)) {
+	if ($opt_r > 0) {
+		$query .= " where rowid = $opt_r";
+	} else {
+		die "Invalid -r argument: $opt_r";
+	}
+}
+
+my $sth = $db->doquery($query);
+if (!defined($sth)) {
+	die "Failed to get URL list from db: $!";
+}
+if ($sth == -1) {
+	die "Failed to get URL list from db: $!";
+}
+
+while(my $URL = $sth->fetchrow_array) {
+	push @URLS,$URL;
+}
 $db = undef;
 
-if ($verbose) {
-	$| = 1; # Enable autoflush, to help with ordered output/debugging
-}
-foreach my $URL (@{$conf{'XML'}}) {
+foreach my $URL (@URLS) {
 	my ($content,$req,$res,$text,$feed);
 
-	$inserted = 0;
 	my $feedid = feed_cache($URL);
 	if (!defined($feedid)) {
 		printf STDERR "\nfeed_cache('%s') failed!\n",$URL;
 		next;
 	}
-	printf STDERR "%4d: %s",$feedid,$URL;
 	$feedcount++;
-	if ($inserted) {
-		$feednew++;
-		printf STDERR " (new)";
-	}
-	printf STDERR "\n";
 
 	if ($verbose == 0) {
 		$entrypid = rlfork();
@@ -170,6 +233,10 @@ foreach my $URL (@{$conf{'XML'}}) {
 	};
 	if ($@) {
 		printf STDERR "Request error: $@\n";
+		next;
+	}
+	if ($$text =~ m/^[0-9]{1,3} /) {
+		printf STDERR "HTTP error: %s\n",$$text;
 		next;
 	}
 
@@ -752,7 +819,7 @@ rlfork
 		$childcount = scalar keys %children;
 	}
 	my $pid = fork();
-	die "Fork: $!\n" unless defined $pid;
+	die "Fork: $!" unless defined $pid;
 	if ($pid > 0) {
 		if ($verbose > 0 || $forkdebug > 0) {
 			printf STDERR "%d Parent[%d] +Child[%d] = %d children\n",
