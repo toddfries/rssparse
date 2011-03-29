@@ -19,8 +19,8 @@ use warnings;
 
 use XML::Atom::Feed;
 use XML::Feed;
-use XML::Feed::Enclosure;
-use XML::Feed::Format::RSS;
+#use XML::Feed::Enclosure;
+#use XML::Feed::Format::RSS;
 use LWP::UserAgent;
 use HTML::FormatText::WithImgLinks;
 use Encode qw( encode decode );
@@ -50,8 +50,8 @@ use Encode qw( encode decode );
 
 use FDC::CleanText;
 
-$XML::Feed::Format::RSS::PREFERRED_PARSER = "XML::RSS::LibXML";
-$XML::Feed::MULTIPLE_ENCLOSURES=1;
+#$XML::Feed::Format::RSS::PREFERRED_PARSER = "XML::RSS::LibXML";
+#$XML::Feed::MULTIPLE_ENCLOSURES=1;
 
 use OpenBSD::Getopt;
 
@@ -208,7 +208,7 @@ while(my $URL = $sth->fetchrow_array) {
 $db = undef;
 
 my $i = 0;
-printf STDERR "About to handle %d URLs\n",$#URLS;
+printf STDERR "About to handle %d URLs\n",$#URLS+1;
 
 foreach my $URL (@URLS) {
 	my ($content,$req,$res,$text,$feed);
@@ -461,8 +461,11 @@ foreach my $URL (@URLS) {
 		if (compare($body,$title) && length($title) > 65) {
 			$title = substr($title,0,55)."...";
 		}
-		my @tags = $entry->tags();
+		my @tags;
 		my $tags = "";
+		if (function_exists("$entry->tags")) {
+ 			@tags = $entry->tags();
+		}
 		if (@tags) {
 			foreach my $tag (@tags) {
 				$tags .= "$tag,";
@@ -474,7 +477,7 @@ foreach my $URL (@URLS) {
 			if (defined($link)) {
 				$vars{'URL'} = $link;
 			}
-			if (defined($entry->{entry}->{enclosure})) {
+			if (defined($entry->{entry}->{enclosure}) && function_exists("$entry->enclosure")) {
 				my @encs = $entry->enclosure;
 				foreach my $enc (@encs) {
 					push @{$vars{'ENC'}},$enc;
@@ -483,8 +486,8 @@ foreach my $URL (@URLS) {
 			$vars{'LOC'}=$entry->{'entry'}->{
 				'http://www.georss.org/georss'}->{'point'};
 			if (!defined($vars{'LOC'})) {
-				if (defined($entry->lat) &&
-				    defined($entry->long)) {
+				if (function_exists("$entry->lat") &&
+				    function_exists("$entry->long")) {
 					$vars{'LOC'}  = $entry->lat." ";
 					$vars{'LOC'} .= $entry->long;
 				}
@@ -626,6 +629,13 @@ do {
 exit(0);
 
 1;
+
+sub function_exists {    
+    no strict 'refs';
+    my $funcname = shift;
+    return \&{$funcname} if defined &{$funcname};
+    return;
+}
 
 sub
 parsefeed
