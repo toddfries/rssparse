@@ -59,7 +59,8 @@ our $opt_v = 0;
 our $opt_a;
 our $opt_p = 0;
 our $opt_d;
-getopts('a:d:pv');
+our $opt_r;
+getopts('a:d:pr:v');
 
 my $verbose = $opt_v;
 if ($verbose) {
@@ -109,6 +110,7 @@ $ua->env_proxy();
 
 our $dsn = "dbi:SQLite:dbname=$ENV{'HOME'}/.r2e.db";
 
+my @URLS;
 my $db = FDC::db->new($dsn,"","");
 my $dbh = $db->getdbh();
 my @tables = $dbh->tables();
@@ -160,9 +162,9 @@ if (defined($opt_d)) {
 	printf "Deleted id = %d, rowid = %d, url = %d\n",$opt_d,$rowid,$feedurl;
 	exit(0);
 }
-$db = undef;
 
 if (defined($opt_a) && length($opt_a) > 0) {
+	$db = undef;
 	my $feedid = feed_cache($opt_a);
 	if (!defined($feedid)) {
 		printf STDERR "\nfeed_cache('%s') failed!\n",$opt_a;
@@ -172,9 +174,11 @@ if (defined($opt_a) && length($opt_a) > 0) {
 	exit(0);
 }
 
-$db = FDC::db->new($dsn,"","");
-
 $query = "SELECT feedurl from ${dbfee}";
+if (defined($opt_r) && $opt_r > 0) {
+	$query .= " where rowid = $opt_r";
+}
+
 my $sth = $db->doquery($query);
 if (!defined($sth)) {
 	die "Failed to get URL list from db: $!\n";
@@ -183,7 +187,6 @@ if ($sth == -1) {
 	die "Failed to get URL list from db: $!\n";
 }
 
-my @URLS;
 while(my $URL = $sth->fetchrow_array) {
 	push @URLS,$URL;
 }
