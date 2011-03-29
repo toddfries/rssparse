@@ -231,6 +231,15 @@ foreach my $URL (@{$conf{'XML'}}) {
 		if ($verbose) {
 			printf STDERR "\n%d.",++$entrycount;
 		}
+		my $pid;
+		if ($verbose > 0) {
+			$pid = 0;
+		} else {
+			$pid = rlfork();
+		}
+		if ($pid > 0) {
+			next;
+		}
 		my $body = $entry->content->body;
 		if (!defined($body)) {
 			$body = $entry->summary->body;
@@ -469,26 +478,18 @@ foreach my $URL (@{$conf{'XML'}}) {
 			print STDERR recurse_dump($entry);
 		}
 		$mailstr .= "\n";
-		my $pid;
 		if ($verbose > 0) {
-			$pid = 0;
+			open(MAIL,">>/dev/stdout");
 		} else {
-			$pid = rlfork();
+			#open(MAIL,">>/dev/null");
+			open(MAIL,"|/usr/sbin/sendmail $recipient");
+			#open(MAIL,">>/dev/stdout");
 		}
-		if ($pid == 0) {
-			if ($verbose > 0) {
-				open(MAIL,">>/dev/stdout");
-			} else {
-				#open(MAIL,">>/dev/null");
-				open(MAIL,"|/usr/sbin/sendmail $recipient");
-				#open(MAIL,">>/dev/stdout");
-			}
-			printf MAIL "%s",encode('utf-8',$mailstr);
-			close(MAIL);
-			if ($verbose == 0) {
-				# Since this is a child...
-				exit(0);
-			}
+		printf MAIL "%s",encode('utf-8',$mailstr);
+		close(MAIL);
+		if ($verbose == 0) {
+			# Since this is a child...
+			exit(0);
 		}
 	}
 	action_show($feedid);
@@ -792,7 +793,19 @@ sub REAPER {
 sub
 action_show {
 	my ($feedid) = @_;
-	printf STDERR "%4d: Inserted/Skipped = %4d/%4d\n", $feedid,
-	    $insertactioncount, $skipactioncount;
+	my ($inspct,$skippct,$total) = (0.0,0.0,0);
+	$total = $insertactioncount + $skipactioncount;
+	if ($total > 0) {
+		if ($insertactioncount > 0) {
+			$inspct = $insertactioncount/$total*100;
+		}
+		if ($skipactioncount > 0) {
+			$skippct = $skipactioncount/$total*100;
+		}
+	}
+	printf STDERR
+	    "%4d: Inserted/Skipped/Total = %4d(%0.2f%%)/%4d(%0.2f%%)/%4d\n",
+	    $feedid, $insertactioncount, $inspct, $skipactioncount, $skippct,
+	    $total;
 }
 
