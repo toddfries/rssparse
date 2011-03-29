@@ -636,7 +636,7 @@ parse
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^(wbr|t|bold|break|insert|h)/i) {
+			if ($t->[1] =~ m/^(wbr|t|photo|audio|bold|break|insert|h)/i) {
 				$tign++;
 				next;
 			}
@@ -644,7 +644,11 @@ parse
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^(adscheduletarget|strike)/i) {
+			if ($t->[1] =~ m/^(adscheduletarget|cite|docs|strike)/i) {
+				$tign++;
+				next;
+			}
+			if ($t->[1] =~ m/^(caption|ins|sub)/i) {
 				$tign++;
 				next;
 			}
@@ -728,7 +732,11 @@ parse
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^(adscheduletarget|cite|docs)/i) {
+			if ($t->[1] =~ m/^(adscheduletarget|cite|docs|strike)/i) {
+				$tign++;
+				next;
+			}
+			if ($t->[1] =~ m/^(caption|ins|sub)/i) {
 				$tign++;
 				next;
 			}
@@ -917,9 +925,15 @@ parse
 	# add signature
 	if ($self->{wordwrap}) {
 		my $localout = length($out);
+		my $percent;
 		$out .= "\n-- HTML->text courtesy HTML::FormatText::WithImgLinks (by Todd Fries) --\n";
-		$out .= sprintf "In/Out = %d/%d bytes (%0.2f%%)  ", $localin, $localout,
-		    ($localout/$localin)*100;
+		if ($localin == 0) {
+			$percent = 0.0;
+		} else {
+			$percent = ($localout/$localin)*100;
+		}
+		$out .= sprintf "In/Out = %d/%d bytes (%0.2f%%)  ",
+		    $localin, $localout, $percent;
 		$out .= sprintf "Total/Ignore/Unknown = %s/%s/%s tags\n",$tcount,$tign,$tunk;
 	}
 	return $out;
