@@ -210,7 +210,9 @@ while(my $URL = $sth->fetchrow_array) {
 $db = undef;
 
 my $i = 0;
-printf STDERR "About to handle %d URLs\n",$#URLS;
+if ($quiet < 1) {
+	printf STDERR "About to handle %d URLs\n",$#URLS;
+}
 
 foreach my $URL (@URLS) {
 	my ($content,$req,$res,$text,$feed);
