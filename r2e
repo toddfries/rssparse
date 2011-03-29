@@ -56,13 +56,15 @@ $XML::Feed::MULTIPLE_ENCLOSURES=1;
 use OpenBSD::Getopt;
 
 our $opt_v = 0;
+our $opt_q = 0;
 our $opt_a;
 our $opt_p = 0;
 our $opt_d;
 our $opt_r;
-getopts('a:d:pr:v');
+getopts('a:d:pqr:v');
 
 my $verbose = $opt_v;
+my $quiet = $opt_q;
 if ($verbose) {
 	$| = 1; # Enable autoflush, to help with ordered output/debugging
 }
@@ -220,7 +222,9 @@ foreach my $URL (@URLS) {
 	}
 	$feedcount++;
 
-	printf STDERR "%4d: %s start[$$] %d\n", $feedid, $URL, $i++;
+	if ($quiet < 1) {
+		printf STDERR "%4d: %s start[$$] %d\n", $feedid, $URL, $i++;
+	}
 	if ($verbose > 0 || $forkdebug > 0) {
 		printf STDERR "    [Parent[$$], Children: %d\n",scalar keys %children;
 	}
@@ -600,7 +604,9 @@ foreach my $URL (@URLS) {
 			exit(0);
 		}
 	}
-	action_show($feedid);
+	if ($quiet < 1) {
+		action_show($feedid);
+	}
 	if ($verbose == 0) {
 		# Since this is a child...
 		exit(0);
