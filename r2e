@@ -150,7 +150,7 @@ if ($opt_p > 0) {
 }
 if (defined($opt_d)) {
 	if ($opt_d < 1) {
-		die "'-d <id>' to delete an id, invalid syntax: $opt_d\n";
+		die "'-d <id>' to delete an id, invalid syntax: $opt_d";
 	}
 	$query = "SELECT rowid,feedurl from ${dbfee} where rowid = $opt_d";
 	my $sth = $db->doquery($query);
@@ -158,33 +158,48 @@ if (defined($opt_d)) {
 	$query = "DELETE from ${dbfee} where rowid = $opt_d";
 	$db->doquery($query);
 	$query = "DELETE from ${dbtab} where feedid = $opt_d";
-	$db->doquery($query);
-	printf "Deleted id = %d, rowid = %d, url = %d\n",$opt_d,$rowid,$feedurl;
+	$sth = $db->doquery($query);
+	if (!defined($sth) || $sth == -1 || !defined($rowid) || !defined($feedurl)) {
+		printf STDERR "Unable to delete id %s: $!\n",$opt_d;
+		exit(1);
+	}
+	printf STDERR "%4d: %s (deleted, rowid = %d)\n",$opt_d,$feedurl,$rowid;
 	exit(0);
 }
 
 if (defined($opt_a) && length($opt_a) > 0) {
 	$db = undef;
+	$inserted = 0;
 	my $feedid = feed_cache($opt_a);
 	if (!defined($feedid)) {
 		printf STDERR "\nfeed_cache('%s') failed!\n",$opt_a;
 		next;
 	}
-	printf "Added %s, id = %d\n",$opt_a,$feedid;
+	my $action="";
+	if ($inserted == 0) {
+		$action = "duplicate";
+	} else {
+		$action = "added";
+	}
+	printf "%4d: %s (%s)\n",$feedid,$opt_a,$action;
 	exit(0);
 }
 
 $query = "SELECT feedurl from ${dbfee}";
-if (defined($opt_r) && $opt_r > 0) {
-	$query .= " where rowid = $opt_r";
+if (defined($opt_r)) {
+	if ($opt_r > 0) {
+		$query .= " where rowid = $opt_r";
+	} else {
+		die "Invalid -r argument: $opt_r";
+	}
 }
 
 my $sth = $db->doquery($query);
 if (!defined($sth)) {
-	die "Failed to get URL list from db: $!\n";
+	die "Failed to get URL list from db: $!";
 }
 if ($sth == -1) {
-	die "Failed to get URL list from db: $!\n";
+	die "Failed to get URL list from db: $!";
 }
 
 while(my $URL = $sth->fetchrow_array) {
@@ -801,7 +816,7 @@ rlfork
 		$childcount = scalar keys %children;
 	}
 	my $pid = fork();
-	die "Fork: $!\n" unless defined $pid;
+	die "Fork: $!" unless defined $pid;
 	if ($pid > 0) {
 		if ($verbose > 0 || $forkdebug > 0) {
 			printf STDERR "%d Parent[%d] +Child[%d] = %d children\n",
