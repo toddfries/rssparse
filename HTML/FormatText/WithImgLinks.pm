@@ -748,6 +748,10 @@ parse
 				$tign++;
 				next;
 			}
+			if ($t->[1] =~ m/^(nometa)/i) {
+				$tign++;
+				next;
+			}
 			$tunk++;
 			printf STDERR "parse: unhandled end tag: '%s'\n",
 			    $t->[1];
