@@ -512,6 +512,8 @@ parse
 	my @urls;
 	my @imgs;
 	my ($tcount,$tign,$tunk) = (0,0,0);
+	my %stags;
+	my %etags;
 	while (my $t = $p->get_token()) {
 		$tcount++;
 		if ($t->[0] eq "T") { # Text
@@ -533,6 +535,9 @@ parse
 			}
 			if ($titlestate) {
 				$tt =~ s/[ ]+$//;
+				if ($tt =~ m/^Untitled Document/i) {
+					$tt = "";
+				}
 				if (length($tt)>0) {
 					$tt = "TITLE: $tt\n\n";
 				}
@@ -652,13 +657,16 @@ parse
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^(event)/i) {
+			if ($t->[1] =~ m/^(event|bgsound)/i) {
 				$tign++;
 				next;
 			}
-			$tunk++;
-			printf STDERR "parse: unhandled start tag: '%s'\n",
-			    $t->[1];
+			if (!defined($stags{$t->[1]})) {
+				$tunk++;
+				$stags{$t->[1]}=1;
+			} else {
+				$stags{$t->[1]}++;
+			}
 			next;
 		}
 		if ($t->[0] eq "E") { # End tag
@@ -748,13 +756,16 @@ parse
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^(nometa)/i) {
+			if ($t->[1] =~ m/^(bgsound|nometa)/i) {
 				$tign++;
 				next;
 			}
-			$tunk++;
-			printf STDERR "parse: unhandled end tag: '%s'\n",
-			    $t->[1];
+			if (!defined($etags{$t->[1]})) {
+				$tunk++;
+				$etags{$t->[1]}=1;
+			} else {
+				$etags{$t->[1]}++;
+			}
 			next;
 		}
 		if ($t->[0] eq "C") { # Comment
@@ -787,6 +798,14 @@ parse
 		}
 		printf STDERR " }\n";
 		}
+	}
+	foreach my $tag (keys %stags) {
+		printf STDERR "parse: unhandled start tag: '%s' ".
+		    "encountered %d times\n", $tag, $stags{$tag};
+	}
+	foreach my $tag (keys %etags) {
+		printf STDERR "parse: unhandled end tag: '%s' ".
+		    "encountered %d times\n", $tag, $etags{$tag};
 	}
 	my $cache;
 	my $footnotefmt;
@@ -944,11 +963,36 @@ parse
 		} else {
 			$percent = ($localout/$localin)*100;
 		}
-		$out .= sprintf "In/Out = %d/%d bytes (%0.2f%%)  ",
+		$localin = size_format($localin);
+		$localout = size_format($localout);
+		$out .= sprintf "In/Out = %s/%s (%0.2f%%)  ",
 		    $localin, $localout, $percent;
 		$out .= sprintf "Total/Ignore/Unknown = %s/%s/%s tags\n",$tcount,$tign,$tunk;
 	}
 	return $out;
+}
+
+#
+# size_format(size in bytes)
+#
+# returns a string formatted with B/KB/MB/GB/TB/PB
+sub
+size_format
+{
+	my ($size) = @_;
+	my $eunit = "B ";
+	my @units = ("B ","KB", "MB", "GB", "TB", "PB", "ZB");
+	my $sone=$size;
+	foreach my $unit (@units) {
+		$eunit = $unit;
+		if (length($sone) < 4) {
+			last;
+		}
+		$size = $size / 1024.0;
+		$sone = $size;
+		$sone = s/\..*$//;
+	}
+	return sprintf "%0.2f%s",$size,$eunit;
 }
 
 sub
