@@ -461,6 +461,51 @@ my %charmap = (
 	9830 => 'cD-',
 );
 
+# data borrowed from doc2txt
+my %splchars = (
+        "\xC2\xA0" => ' ',              # <nbsp>
+        "\xC2\xA6" => '|',              # <brokenbar>
+        "\xC2\xA9" => '(C)',            # <copyright>
+        "\xC2\xAB" => '<<',             # <laquo>
+        "\xC2\xAC" => '-',              # <negate>
+        "\xC2\xAE" => '(R)',            # <regd>
+        "\xC2\xB1" => '+-',             # <plusminus>
+        "\xC2\xBB" => '>>',             # <raquo>
+
+#       "\xC2\xA7" => '',               # <section>
+#       "\xC2\xB6" => '',               # <para>
+
+        "\xC3\x97" => 'x',              # <mul>
+        "\xC3\xB7" => '/',              # <div>
+
+        "\xE2\x80\x82" => '  ',         # <enspc>
+        "\xE2\x80\x83" => '  ',         # <emspc>
+        "\xE2\x80\x85" => ' ',          # <qemsp>
+        "\xE2\x80\x93" => ' - ',        # <endash>
+        "\xE2\x80\x94" => ' -- ',       # <emdash>
+        "\xE2\x80\x98" => '`',          # <soq>
+        "\xE2\x80\x99" => '\'',         # <scq>
+        "\xE2\x80\x9C" => '"',          # <doq>
+        "\xE2\x80\x9D" => '"',          # <dcq>
+        "\xE2\x80\xA2" => '::',         # <diamond symbol>
+        "\xE2\x80\xA6" => '...',        # <ellipsis>
+
+        "\xE2\x84\xA2" => '(TM)',       # <trademark>
+
+        "\xE2\x89\xA0" => '!=',         # <neq>
+        "\xE2\x89\xA4" => '<=',         # <leq>
+        "\xE2\x89\xA5" => '>=',         # <geq>
+
+        #
+        # Currency symbols
+        #
+        "\xC2\xA2" => 'cent',
+        "\xC2\xA3" => 'Pound',
+        "\xC2\xA5" => 'Yen',
+        "\xE2\x82\xAC" => 'Euro'
+);
+
+
 sub
 init
 {
@@ -897,6 +942,9 @@ parse
 	#$output = HTML::Entities::decode($output, \%{$self->{entity2char}});
 	#my $text_string = decode('UTF-8', $output);
 	#my $output = encode('us-ascii', $text_string);
+
+	$output =~ s/(\xE2..|\xC2.|\xC3.)/($splchars{$1} ? $splchars{$1} : $1)/oge;
+
 	my $utfdebug = 0;
 	foreach my $debugline ((
 		#'odd to complain of a sense',
