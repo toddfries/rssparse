@@ -597,7 +597,12 @@ foreach my $URL (@URLS) {
 			open(MAIL,"|/usr/sbin/sendmail $recipient");
 			#open(MAIL,">>/dev/stdout");
 		}
-		printf MAIL "%s",encode('utf-8',$mailstr);
+		my $rv = print MAIL encode('utf-8',$mailstr);
+		if (0) { # so the below always happens, test before re-enabling
+		if ($rv != 0) {
+			guid_uncache($feedid,$guid_sha);
+		}
+		}
 		close(MAIL);
 		if ($verbose == 0) {
 			# Since this is a child...
@@ -816,6 +821,24 @@ feed_seen {
 	return -1;
 }
 
+sub
+guid_uncache {
+	my ($feedid,$sha) = @_;
+	my $db = FDC::db->new($dsn,"","");
+	my $oid = guid_seen($db, $feedid, $sha);
+	if ($oid < 1) {
+		$db = undef;
+		return;
+	}
+	my $query = sprintf "DELETE FROM %s where rowid = %d",$dbtab,$oid;
+	if ($verbose > 0) {
+		printf STDERR "guid_uncache: %s\n",$query;
+	}
+	my $sth = $db->doquery($query);
+	$sth->finish;
+	$db = undef;
+	return;
+}
 sub
 guid_cache {
 	my ($feedid,$sha) = @_;
