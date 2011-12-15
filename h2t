@@ -23,10 +23,10 @@ use Encode qw( encode decode );
 
 eval {
 	use OpenBSD::Getopt;
-}
-if ($@) {
-	use Getopt;
-}
+};
+#if ($@) {
+#	use Getopt;
+#}
 
 our $opt_v = 0;
 getopts('v');
