@@ -393,6 +393,7 @@ foreach my $URL (@URLS) {
 		if ($verbose == 0) {
 			$pid = rlfork("PARSE");
 			if ($pid > 0) {
+				$body = $guid = $entry = $guid_sha = undef;
 				next;
 			}
 			$0 = "r2e $URL: $guid";
