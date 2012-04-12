@@ -186,6 +186,10 @@ if (defined($opt_a) && length($opt_a) > 0) {
 	printf "%4d: %s (%s)\n",$feedid,$opt_a,$action;
 	exit(0);
 }
+if (defined($opt_a)) {
+	printf "-a <URL>\n";
+	exit(1);
+}
 
 $query = "SELECT feedurl from ${dbfee}";
 if (defined($opt_r)) {
