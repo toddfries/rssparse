@@ -1038,7 +1038,11 @@ size_format
 		}
 		$size = $size / 1024.0;
 		$sone = $size;
-		$sone = s/\..*$//;
+		if (defined($sone)) {
+			if (length($sone) > 0) {
+				$sone =~ s/\..*$//;
+			}
+		}
 	}
 	return sprintf "%0.2f%s",$size,$eunit;
 }
