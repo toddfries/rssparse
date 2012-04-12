@@ -535,6 +535,9 @@ parse
 {
 	my ($self,$text) = @_;
 	my $localin = length($text);
+	if (!defined($localin)) {
+		$localin = 0;
+	}
 
 	my $p = HTML::TokeParser->new( \$text );
 	$p->xml_mode(1);
@@ -702,7 +705,15 @@ parse
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^(event|bgsound)/i) {
+			if ($t->[1] =~ m/^(event|bgsound|button)/i) {
+				$tign++;
+				next;
+			}
+			if ($t->[1] =~ m/^fb:[a-z]+/i) {
+				$tign++;
+				next;
+			}
+			if ($t->[1] =~ m/^g:[a-z]+/i) {
 				$tign++;
 				next;
 			}
@@ -801,7 +812,15 @@ parse
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^(bgsound|nometa)/i) {
+			if ($t->[1] =~ m/^(bgsound|nometa|button)/i) {
+				$tign++;
+				next;
+			}
+			if ($t->[1] =~ m/^fb:[a-z]+/i) {
+				$tign++;
+				next;
+			}
+			if ($t->[1] =~ m/^g:[a-z]+/i) {
 				$tign++;
 				next;
 			}
@@ -1028,6 +1047,9 @@ sub
 size_format
 {
 	my ($size) = @_;
+	if (!defined($size)) {
+		$size = 0;
+	}
 	my $eunit = "B ";
 	my @units = ("B ","KB", "MB", "GB", "TB", "PB", "ZB");
 	my $sone=$size;
@@ -1038,11 +1060,7 @@ size_format
 		}
 		$size = $size / 1024.0;
 		$sone = $size;
-		if (defined($sone)) {
-			if (length($sone) > 0) {
-				$sone =~ s/\..*$//;
-			}
-		}
+		$sone =~ s/\..*$//;
 	}
 	return sprintf "%0.2f%s",$size,$eunit;
 }
