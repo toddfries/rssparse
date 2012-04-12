@@ -70,6 +70,7 @@ if ($verbose) {
 }
 
 our %children;
+our %mailchildren;
 our $entrypid = 0;
 our $forkdebug = 0;
 
@@ -191,6 +192,8 @@ if (defined($opt_a)) {
 	exit(1);
 }
 
+$0 = "r2e";
+
 $query = "SELECT feedurl from ${dbfee}";
 if (defined($opt_r)) {
 	if ($opt_r > 0) {
@@ -221,6 +224,8 @@ if ($quiet < 1) {
 foreach my $URL (@URLS) {
 	my ($content,$req,$res,$text,$feed);
 
+	$0 = "r2e $URL";
+
 	my $feedid = feed_cache($URL);
 	if (!defined($feedid)) {
 		printf STDERR "\nfeed_cache('%s') failed!\n",$URL;
@@ -232,7 +237,8 @@ foreach my $URL (@URLS) {
 		printf STDERR "%4d: %s start[$$] %d\n", $feedid, $URL, $i++;
 	}
 	if ($verbose > 0 || $forkdebug > 0) {
-		printf STDERR "    [Parent[$$], Children: %d\n",scalar keys %children;
+		printf STDERR "    [Parent[$$], Children: %d, Mailers: %d\n",scalar keys %children,
+			scalar keys %mailchildren;
 	}
 
 	if ($verbose == 0) {
@@ -348,6 +354,9 @@ foreach my $URL (@URLS) {
 			$body = $entry->{'title'};
 		}
 		if (!defined($body)) {
+			$body = "";
+		}
+		if (length($body) < 1) {
 			if ($verbose > 0) {
 				printf STDERR "empty body:\n";
 				$body = recurse_dump($entry);
@@ -382,10 +391,11 @@ foreach my $URL (@URLS) {
 		# XXX no sooner, so stats can be preserved
 		my $pid;
 		if ($verbose == 0) {
-			$pid = rlfork();
+			$pid = rlfork("PARSE");
 			if ($pid > 0) {
 				next;
 			}
+			$0 = "r2e $URL: $guid";
 			$req = $res = $text = $feed = undef;
 		} else {
 			$pid = 0;
@@ -630,9 +640,9 @@ foreach my $URL (@URLS) {
 
 my $childcount;
 do {
-	$childcount = scalar keys %children;
+	$childcount = (scalar keys %children) + (scalar keys %mailchildren);
 	if ($childcount > 0) {
-		for my $kid (keys %children) {
+		for my $kid (keys %children, keys %mailchildren) {
 			if ($verbose > 0 || $forkdebug > 0) {
 				printf STDERR "Waiting for %d to exit...\n",$kid;
 			}
@@ -896,14 +906,27 @@ feed_cache {
 sub
 rlfork
 {
+	my ($type) = @_;
+	if (!defined($type)) {
+		$type = "";
+	}
 	$SIG{CHLD} = \&REAPER;
-	my $childcount = scalar keys %children;
+	my $childcount;
+	if ($type eq "PARSE") {
+		$childcount = scalar keys %mailchildren;
+	} else {
+		$childcount = scalar keys %children;
+	}
 	while ($childcount >= ${$conf{'max_concurrency'}}[0]) {
 		if ($verbose > 0 || $forkdebug > 0) {
 			printf STDERR "%d Parent[%d] z{%d}\n",($entrypid>0)?1:0,$$,$childcount;
 		}
 		sleep(1);
-		$childcount = scalar keys %children;
+		if ($type eq "PARSE") {
+			$childcount = scalar keys %mailchildren;
+		} else {
+			$childcount = scalar keys %children;
+		}
 	}
 	my $pid = fork();
 	die "Fork: $!" unless defined $pid;
@@ -912,12 +935,17 @@ rlfork
 			printf STDERR "%d Parent[%d] +Child[%d] = %d children\n",
 			    ($entrypid>0)?1:0,$$,$pid,$childcount+1;
 		}
-		$children{$pid}=1;
+		if ($type eq "PARSE") {
+			$mailchildren{$pid}=1;
+		} else {
+			$children{$pid}=1;
+		}
 	} else {
 		# children don't need to know siblings, do they?
 		if (1) {
 			if ($pid == 0) {
 				%children = ( );
+				%mailchildren = ( );
 			}
 		}
 	}
@@ -935,10 +963,17 @@ sub REAPER {
 				printf STDERR "%d Parent[%d] -Child[%d]\n",($entrypid>0)?1:0,$$,$child;
 			}
 			delete $children{$child};
-		} else {
+			next;
+		}
+		if (defined($mailchildren{$child})) {
 			if ($verbose > 0 || $forkdebug > 0) {
-				printf STDERR "%d Parent[%d] -Orphan[%d]\n",($entrypid>0)?1:0,$$,$child;
+				printf STDERR "%d Parent[%d] -Child[%d]\n",($entrypid>0)?1:0,$$,$child;
 			}
+			delete $mailchildren{$child};
+			next;
+		}
+		if ($verbose > 0 || $forkdebug > 0) {
+			printf STDERR "%d Parent[%d] -Orphan[%d]\n",($entrypid>0)?1:0,$$,$child;
 		}
 	}
 	$SIG{CHLD} = \&REAPER;
