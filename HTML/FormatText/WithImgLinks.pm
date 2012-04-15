@@ -538,6 +538,8 @@ parse
 	if (!defined($localin)) {
 		$localin = 0;
 	}
+	my $out="";
+	my $err="";
 
 	my $p = HTML::TokeParser->new( \$text );
 	$p->xml_mode(1);
@@ -985,7 +987,6 @@ parse
 	$output =~ s/[[:space:]]$//g;
 	$output =~ s/^"[ \t]+/"/g;
 
-	my $out="";
 	my $lm=0;
 	my $rm=79;
 	my $finalcr=0;
@@ -1036,6 +1037,7 @@ parse
 		    $localin, $localout, $percent;
 		$out .= sprintf "Total/Ignore/Unknown = %s/%s/%s tags\n",$tcount,$tign,$tunk;
 	}
+	$self->{parserr} = $err;
 	return $out;
 }
 
