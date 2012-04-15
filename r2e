@@ -42,6 +42,7 @@ use Digest::SHA qw/sha256_base64/;
 use Data::Dumper;
 
 use FDC::db;
+use DBI qw(:sql_types);
 
 use XML::RSS;
 $XML::RSS::AUTO_ADD = 1; # force acceptance of extra namespaces
@@ -119,8 +120,10 @@ my $dbh = $db->getdbh();
 my @tables = $dbh->tables();
 my $dbtab = "r2e_ids";
 my $dbfee = "r2e_feeds";
+my $dbque = "r2e_queue";
 my $create_dbtab = 1;
 my $create_feeds = 1;
+my $create_queue = 1;
 my ($feedcount,$feednew,$idcount,$idnew) = (0,0,0,0);
 foreach my $tname (@tables) {
 	if ($tname =~ m/\"${dbtab}\"/) {
@@ -128,6 +131,9 @@ foreach my $tname (@tables) {
 	}
 	if ($tname =~ m/\"${dbfee}\"/) {
 		$create_feeds = 0;
+	}
+	if ($tname =~ m/\"${dbque}\"/) {
+		$create_queue = 0;
 	}
 }
 my $query;
@@ -137,6 +143,10 @@ if ($create_dbtab) {
 }
 if ($create_feeds) {
 	$query = "CREATE TABLE ${dbfee} (feedurl varchar(256), edate datestamp DEFAULT CURRENT_TIMESTAMP)";
+	$db->doquery($query);
+}
+if ($create_queue) {
+	$query = "CREATE TABLE ${dbque} (id integer PRIMARY KEY AUTOINCREMENT, message TEXT, recipient TEXT)";
 	$db->doquery($query);
 }
 
@@ -171,6 +181,7 @@ if (defined($opt_d)) {
 }
 
 if (defined($opt_a) && length($opt_a) > 0) {
+	$db->{dbh}->disconnect;
 	$db = undef;
 	$inserted = 0;
 	my $feedid = feed_cache($opt_a);
@@ -214,6 +225,7 @@ if ($sth == -1) {
 while(my $URL = $sth->fetchrow_array) {
 	push @URLS,$URL;
 }
+$db->{dbh}->disconnect;
 $db = undef;
 
 my $i = 0;
@@ -611,12 +623,13 @@ foreach my $URL (@URLS) {
 			print STDERR recurse_dump($entry);
 		}
 		$mailstr .= "\n";
+		# 0 = queue in db, send in separate process
+		# 1 = fork sendmail here
+		if (0) {
 		if ($verbose > 0) {
 			open(MAIL,">>/dev/stdout");
 		} else {
-			#open(MAIL,">>/dev/null");
 			open(MAIL,"|/usr/sbin/sendmail $recipient");
-			#open(MAIL,">>/dev/stdout");
 		}
 		my $rv = print MAIL encode('utf-8',$mailstr);
 		if (0) { # so the below always happens, test before re-enabling
@@ -625,6 +638,9 @@ foreach my $URL (@URLS) {
 		}
 		}
 		close(MAIL);
+		} else {
+		queue_mail(encode('utf-8', $mailstr),$recipient);
+		}
 		if ($verbose == 0) {
 			# Since this is a child...
 			exit(0);
@@ -654,6 +670,9 @@ do {
 		}
 	}
 } while ($childcount > 0);
+
+$0 = "r2e mailqueue";
+run_mailqueue();
 
 exit(0);
 
@@ -850,6 +869,7 @@ guid_uncache {
 	my $db = FDC::db->new($dsn,"","");
 	my $oid = guid_seen($db, $feedid, $sha);
 	if ($oid < 1) {
+		$db->{dbh}->disconnect;
 		$db = undef;
 		return;
 	}
@@ -859,6 +879,7 @@ guid_uncache {
 	}
 	my $sth = $db->doquery($query);
 	$sth->finish;
+	$db->{dbh}->disconnect;
 	$db = undef;
 	return;
 }
@@ -868,6 +889,7 @@ guid_cache {
 	my $db = FDC::db->new($dsn,"","");
 	my $oid = guid_seen($db, $feedid, $sha);
 	if ($oid > 0) {
+		$db->{dbh}->disconnect;
 		$db = undef;
 		return $oid;
 	}
@@ -880,8 +902,51 @@ guid_cache {
 	$sth->finish;
 	$inserted=1;
 	$oid = guid_seen($db, $feedid, $sha);
+	$db->{dbh}->disconnect;
 	$db = undef;
 	return $oid;
+}
+
+sub
+queue_mail {
+	my ($message,$recipient) = @_;
+	my $query = sprintf "INSERT INTO %s (message,recipient) VALUES (?,?)",
+	    $dbque;
+	my $db = FDC::db->new($dsn,"","");
+	my $sth = $db->{dbh}->prepare($query);
+	$sth->bind_param(1, $message, SQL_CHAR);
+	$sth->bind_param(2, $recipient, SQL_CHAR);
+	$sth->execute();
+	$sth->finish();
+	$db->{dbh}->disconnect();
+	$db = undef;
+}
+sub
+run_mailqueue {
+	my @ids;
+	my $query = sprintf "SELECT id, message, recipient from %s", $dbque;
+	my $db = FDC::db->new($dsn,"","");
+	my $sth = $db->doquery($query);
+	if (defined($sth) && $sth != -1) {
+		while (my ($id,$message,$recipient) = $sth->fetchrow_array) {
+			$0 = "r2e mailqueue: id=$id, recipient=$recipient";
+			open(MAIL,"|/usr/sbin/sendmail $recipient");
+			print MAIL $message;
+			close(MAIL);
+			push @ids,$id;
+		}
+		$sth->finish;
+	}
+	$0 = "r2e mailqueue";
+	for my $id (@ids) {
+		$0 = "r2e mailqueue: delete id=$id";
+		$query = sprintf "DELETE FROM %s where id = %d", $dbque,
+		    $id;
+		$sth = $db->doquery($query);
+		$sth->finish;
+	}
+	$db->{dbh}->disconnect();
+	$db = undef;
 }
 
 sub
@@ -890,6 +955,7 @@ feed_cache {
 	my $db = FDC::db->new($dsn,"","");
 	my $oid = feed_seen($db, $feedurl);
 	if ($oid > 0) {
+		$db->{dbh}->disconnect;
 		$db = undef;
 		return $oid;
 	}
@@ -899,6 +965,7 @@ feed_cache {
 	$sth->finish;
 	$oid = feed_seen($db,$feedurl);
 	$inserted=1;
+	$db->{dbh}->disconnect;
 	$db = undef;
 	return $oid;
 }
