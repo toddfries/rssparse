@@ -51,6 +51,9 @@ use Encode qw( encode decode );
 
 use FDC::CleanText;
 
+use Email::MIME::Creator;
+#use IO::All;
+
 #$XML::Feed::Format::RSS::PREFERRED_PARSER = "XML::RSS::LibXML";
 #$XML::Feed::MULTIPLE_ENCLOSURES=1;
 
@@ -542,27 +545,9 @@ foreach my $URL (@URLS) {
 			    $entrycount;
 		}
 
-		my $mailstr = "";
-		eval {
-		  $mailstr .= sprintf "From: %s\n",$fromstr;
-		  $mailstr .= sprintf "To: %s\n",$recipient;
-		  $mailstr .= sprintf "Subject: %s\n",encode('utf-8',$title);
-		  $mailstr .= sprintf "Message-Id: <%s.%s\@r2e>\n",
-			$guid_sha, strftime("%s",gmtime);
-		  $mailstr .= sprintf "Date: %s\n",$date;
-		  $mailstr .= sprintf "User-Agent: r2e\n";
-		  $mailstr .= sprintf "X-r2e-oid: %s.%s\n",$guid_sha,$oid;
-
-		  if ($tags) {
-			$mailstr .= sprintf "X-RSS-Tags: %s\n", $tags;
-		  }
-		  $mailstr .= sprintf "\n";
-		  $mailstr .= sprintf "%s\n",$body;
-		  $mailstr .= sprintf "\n";
-		};
-		if ($@) {
-			printf STDERR "failed std mailstr ops: $@\n";
-		}
+		my $mailstr = $body;
+		my @parts;
+		my $email;
 		my $maxlen = 0;
 		foreach my $v (keys %vars) {
 			my $len = length($v);
@@ -624,6 +609,39 @@ foreach my $URL (@URLS) {
 			print STDERR recurse_dump($entry);
 		}
 		$mailstr .= "\n";
+		@parts = (
+			Email::MIME->create(
+			    attributes => {
+				content_type => "text/plain",
+				disposition  => "attachment",
+				charset	     => "utf-8",
+			    },
+			    body => $mailstr,
+			),
+		);
+		$email = Email::MIME->create(
+		    header => [ From => $fromstr ],
+		    parts => [ @parts ],
+		);
+		eval {
+			    
+		  $email->header_set( 'To', $recipient );
+		  $email->header_set( 'Subject', encode('utf-8',$title) );
+		  $email->header_set( 'Message-Id',
+			sprintf("<%s.%s\@r2e>",
+			$guid_sha, strftime("%s",gmtime)) );
+		  $email->header_set( 'Date', $date );
+		  $email->header_set( 'User-Agent', "r2e" );
+		  $email->header_set( 'X-r2e-oid',
+			sprintf("%s.%s",$guid_sha,$oid) );
+
+		  if ($tags) {
+			$email->header_set( 'X-RSS-Tags', $tags );
+		  }
+		};
+		if ($@) {
+			printf STDERR "failed std mailstr ops: $@\n";
+		}
 		# 0 = queue in db, send in separate process
 		# 1 = fork sendmail here
 		if (0) {
@@ -640,7 +658,9 @@ foreach my $URL (@URLS) {
 		}
 		close(MAIL);
 		} else {
-		queue_mail(encode('utf-8', $mailstr),$recipient);
+		#queue_mail(encode('utf-8', $mailstr),$recipient);
+		#queue_mail($email->as_string, $recipient);
+		queue_mail(encode('utf-8', $email->as_string), $recipient);
 		}
 		if ($verbose == 0) {
 			# Since this is a child...
