@@ -393,7 +393,7 @@ foreach my $URL (@URLS) {
 		}
 		my $guid_sha = sha256_base64($guid);
 		$inserted = 0;
-		guid_cache($feedid,$guid_sha);
+		my $oid = guid_cache($feedid,$guid_sha);
 		if ($inserted == 0) {
 			$skipactioncount++;
 			next;
@@ -551,6 +551,7 @@ foreach my $URL (@URLS) {
 			$guid_sha, strftime("%s",gmtime);
 		  $mailstr .= sprintf "Date: %s\n",$date;
 		  $mailstr .= sprintf "User-Agent: r2e\n";
+		  $mailstr .= sprintf "X-r2e-oid: %s.%s\n",$guid_sha,$oid;
 
 		  if ($tags) {
 			$mailstr .= sprintf "X-RSS-Tags: %s\n", $tags;
