@@ -52,6 +52,7 @@ use Encode qw( encode decode );
 use FDC::CleanText;
 
 use Email::MIME::Creator;
+use IO::Compress::Gzip qw(gzip $GzipError :level);
 #use IO::All;
 
 #$XML::Feed::Format::RSS::PREFERRED_PARSER = "XML::RSS::LibXML";
@@ -293,11 +294,11 @@ foreach my $URL (@URLS) {
 	}
 
 	$text =~ s/\x{0d}$//g;
-	$content = decode('utf-8', $$text);
+	$content = decode('UTF-8', $$text);
 	$feed = parsefeed($URL,$content);
 
 	if (!defined($feed)) {
-		$content = decode('utf-8', FDC::CleanText::recode($text));
+		$content = decode('UTF-8', FDC::CleanText::recode($text));
 		$feed = parsefeed($URL,$content);
 		if (!defined($feed)) {
 			$content = $$text;
@@ -404,17 +405,18 @@ foreach my $URL (@URLS) {
 		$insertactioncount++;
 
 		# XXX no sooner, so stats can be preserved
-		my $pid;
+		my $pid = 0;
 		if ($verbose == 0) {
+			# does this really speed up?
+			if (0) {
 			$pid = rlfork("PARSE");
 			if ($pid > 0) {
 				$body = $guid = $entry = $guid_sha = undef;
 				next;
 			}
+			}
 			$0 = "r2e $URL: $guid";
 			$req = $res = $text = $feed = undef;
-		} else {
-			$pid = 0;
 		}
 
 		my $link = $entry->link();
@@ -476,7 +478,7 @@ foreach my $URL (@URLS) {
 		$fromname =~ s/[[:space:]][[:space:]]*/ /gs;
 		my $fromstr = sprintf "%s<%s>",$fromname,$fromemail;
 		if ($verbose) {
-			printf STDERR "from %s\n%d.",decode('utf-8',$fromstr),
+			printf STDERR "from %s\n%d.",decode('UTF-8',$fromstr),
 			    $entrycount;
 		}
 
@@ -493,6 +495,7 @@ foreach my $URL (@URLS) {
 		# make browsing the result useful in a portable way
 		$body =~ s@(href|src|data)="/@$1="$site/@gs;
 		$body =~ s@(href|src|data)="(?!(http|ftp))@$1="$base/@gs;
+		my $bodyorig = $body;
 
 		$body = handletext($feedlanguage,$body,1);
 		if (compare($body,$title) && length($title) > 65) {
@@ -535,17 +538,17 @@ foreach my $URL (@URLS) {
 			printf STDERR "failed var assignments: $@\n";
 		}
 		if ($verbose) {
-			printf STDERR "title %s\n%d.",encode('utf-8',$title),
+			printf STDERR "title %s\n%d.",encode('UTF-8',$title),
 			    $entrycount;
-			printf STDERR " body %s\n%d.",encode('utf-8',$body),
+			printf STDERR " body %s\n%d.",encode('UTF-8',$body),
 			    $entrycount;
 			printf STDERR " date %s\n%d.",$date,
 			    $entrycount;
-			printf STDERR " guid %s\n%d.",encode('utf-8',$guid),
+			printf STDERR " guid %s\n%d.",encode('UTF-8',$guid),
 			    $entrycount;
 		}
 
-		my $mailstr = $body;
+		my $mailstr = $body."\n";
 		my @parts;
 		my $email;
 		my $maxlen = 0;
@@ -608,17 +611,31 @@ foreach my $URL (@URLS) {
 		if ($verbose) {
 			print STDERR recurse_dump($entry);
 		}
-		$mailstr .= "\n";
+		my $bodycomp;
+		my $z = new IO::Compress::Gzip \$bodycomp, Level => Z_BEST_COMPRESSION;
+		print $z $bodyorig;
+		$z->flush();
+		$z->close();
+		$z = $bodyorig = undef;
 		@parts = (
 			Email::MIME->create(
 			    attributes => {
 				content_type => "text/plain",
 				disposition  => "attachment",
-				charset	     => "utf-8",
+				charset	     => "UTF-8",
 			    },
 			    body => $mailstr,
 			),
+			Email::MIME->create(
+			    attributes => {
+				content_type => "binary/x-gzip-html",
+				disposition  => "attachment",
+			    },
+			    body => $bodycomp,
+			),
 		);
+		$parts[1]->encoding_set( 'base64');
+
 		$email = Email::MIME->create(
 		    header => [ From => $fromstr ],
 		    parts => [ @parts ],
@@ -626,7 +643,7 @@ foreach my $URL (@URLS) {
 		eval {
 			    
 		  $email->header_set( 'To', $recipient );
-		  $email->header_set( 'Subject', encode('utf-8',$title) );
+		  $email->header_set( 'Subject', encode('UTF-8',$title) );
 		  $email->header_set( 'Message-Id',
 			sprintf("<%s.%s\@r2e>",
 			$guid_sha, strftime("%s",gmtime)) );
@@ -650,7 +667,7 @@ foreach my $URL (@URLS) {
 		} else {
 			open(MAIL,"|/usr/sbin/sendmail $recipient");
 		}
-		my $rv = print MAIL encode('utf-8',$mailstr);
+		my $rv = print MAIL encode('UTF-8',$mailstr);
 		if (0) { # so the below always happens, test before re-enabling
 		if ($rv != 0) {
 			guid_uncache($feedid,$guid_sha);
@@ -658,9 +675,10 @@ foreach my $URL (@URLS) {
 		}
 		close(MAIL);
 		} else {
-		#queue_mail(encode('utf-8', $mailstr),$recipient);
+		#queue_mail(encode('UTF-8', $mailstr),$recipient);
 		#queue_mail($email->as_string, $recipient);
-		queue_mail(encode('utf-8', $email->as_string), $recipient);
+		queue_mail(encode('UTF-8', $email->as_string), $recipient);
+		$email = undef;
 		}
 		if ($verbose == 0) {
 			# Since this is a child...
@@ -747,7 +765,7 @@ handletext
 		$r = parse_to_text($cset,encode('UTF-8',$text),$wordwrap);
 		if ($tdebug > 0) {
 			foreach my $lang (('iso-8859-1','iso-8859-2',
-			    'iso-8859-16','ascii','ascii-ctrl','utf-8')) {
+			    'iso-8859-16','ascii','ascii-ctrl','UTF-8')) {
 				printf STDERR "Output: '%s'(%s)\n",
 				    encode($lang,$r),$lang;
 			}
@@ -756,7 +774,7 @@ handletext
 	if ($@) {
 		printf STDERR " .. parse_to_text failed! $@\n";
 	}
-	return $r; # encode('utf-8',$r);
+	return $r; # encode('UTF-8',$r);
 }
 sub
 parse_to_text
