@@ -1,0 +1,68 @@
+#!/usr/bin/perl
+
+# Copyright (c) 2010 Todd T. Fries <todd@fries.net>
+#
+# Permission to use, copy, modify, and distribute this software for any
+# purpose with or without fee is hereby granted, provided that the above
+# copyright notice and this permission notice appear in all copies.
+#
+# THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+# WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+# MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+# ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+# WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+# ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+# OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+use strict;
+use warnings;
+
+use HTML::FormatText::WithImgLinks;
+use Encode;
+
+open(FILE,$ARGV[0]);
+while(<FILE>) {
+	my $line;
+	chomp($line = $_);
+	$line = decode('utf-8',$line);
+	printf " Input: '%s'\n",encode('utf-8',$line);
+	printf "Output: '%s'\n",encode('utf-8',handletext('UTF-8',$line));
+}
+close(FILE);
+
+
+sub
+handletext
+{
+	my ($cset,$text) = @_;
+	my $r = "";
+	eval {
+		my $tdebug = 0;
+		if ($tdebug) {
+			printf STDERR "Input : '%s'\n",$text;
+		}
+		$r = parse_to_text($cset,encode('UTF-8',$text));
+		if ($tdebug) {
+		foreach my $lang (('iso-8859-1','iso-8859-2','iso-8859-16',
+				'ascii','ascii-ctrl','utf-8')) {
+			printf STDERR "Output: '%s'(%s)\n",encode($lang,$r),$lang;
+		}
+		}
+	};
+	if ($@) {
+		printf STDERR " .. parse_to_text failed! $@\n";
+	}
+	return $r; # encode('utf-8',$r);
+}
+sub
+parse_to_text
+{
+	my ($rsscset,$text) = @_;
+
+	my $f = HTML::FormatText::WithImgLinks->new($rsscset);
+	$text = $f->parse($text);
+	$f = undef;
+
+	return $text;
+}
+
