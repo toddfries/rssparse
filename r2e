@@ -125,9 +125,11 @@ my @tables = $dbh->tables();
 my $dbtab = "r2e_ids";
 my $dbfee = "r2e_feeds";
 my $dbque = "r2e_queue";
+my $dbnot = "r2e_notify";
 my $create_dbtab = 1;
 my $create_feeds = 1;
 my $create_queue = 1;
+my $create_notify = 1;
 my ($feedcount,$feednew,$idcount,$idnew) = (0,0,0,0);
 foreach my $tname (@tables) {
 	if ($tname =~ m/\"${dbtab}\"/) {
@@ -139,6 +141,9 @@ foreach my $tname (@tables) {
 	if ($tname =~ m/\"${dbque}\"/) {
 		$create_queue = 0;
 	}
+	if ($tname =~ m/\"${dbnot}\"/) {
+		$create_notify = 0;
+	}
 }
 my $query;
 if ($create_dbtab) {
@@ -146,19 +151,23 @@ if ($create_dbtab) {
 	$db->doquery($query);
 }
 if ($create_feeds) {
-	$query = "CREATE TABLE ${dbfee} (feedurl varchar(256), edate datestamp DEFAULT CURRENT_TIMESTAMP)";
+	$query = "CREATE TABLE ${dbfee} (id integer PRIMARY KEY AUTOINCREMENT, feedurl varchar(256), edate datestamp DEFAULT CURRENT_TIMESTAMP)";
 	$db->doquery($query);
 }
 if ($create_queue) {
 	$query = "CREATE TABLE ${dbque} (id integer PRIMARY KEY AUTOINCREMENT, message TEXT, recipient TEXT)";
 	$db->doquery($query);
 }
+if ($create_notify) {
+	$query = "CREATE TABLE ${dbnot} (id integer PRIMARY KEY AUTOINCREMENT, message TEXT, recipient TEXT)";
+	$db->doquery($query);
+}
 
 if ($opt_p > 0) {
-	$query = "SELECT rowid,* from ${dbfee}";
+	$query = "SELECT * from ${dbfee}";
 	my $sth = $db->doquery($query);
 	if (defined($sth) && $sth != -1) {
-		while (my ($id,$url) = $sth->fetchrow_array) {
+		while (my ($id,$url,$edate) = $sth->fetchrow_array) {
 			printf "%4d: %s\n",$id,$url;
 		}
 		$sth->finish;
@@ -169,18 +178,18 @@ if (defined($opt_d)) {
 	if ($opt_d < 1) {
 		die "'-d <id>' to delete an id, invalid syntax: $opt_d";
 	}
-	$query = "SELECT rowid,feedurl from ${dbfee} where rowid = $opt_d";
+	$query = "SELECT id,feedurl,edate from ${dbfee} where id = $opt_d";
 	my $sth = $db->doquery($query);
-	my ($rowid,$feedurl) = $sth->fetchrow_array;
-	$query = "DELETE from ${dbfee} where rowid = $opt_d";
+	my ($id,$feedurl,$edate) = $sth->fetchrow_array;
+	$query = "DELETE from ${dbfee} where id = $opt_d";
 	$db->doquery($query);
 	$query = "DELETE from ${dbtab} where feedid = $opt_d";
 	$sth = $db->doquery($query);
-	if (!defined($sth) || $sth == -1 || !defined($rowid) || !defined($feedurl)) {
+	if (!defined($sth) || $sth == -1 || !defined($id) || !defined($feedurl)) {
 		printf STDERR "Unable to delete id %s: $!\n",$opt_d;
 		exit(1);
 	}
-	printf STDERR "%4d: %s (deleted, rowid = %d)\n",$opt_d,$feedurl,$rowid;
+	printf STDERR "%4d: %s (deleted, id = %d)\n",$opt_d,$feedurl,$id;
 	exit(0);
 }
 
@@ -200,7 +209,7 @@ if (defined($opt_a) && length($opt_a) > 0) {
 		$action = "added";
 	}
 	printf "%4d: %s (%s)\n",$feedid,$opt_a,$action;
-	exit(0);
+	$opt_r = $feedid;
 }
 if (defined($opt_a)) {
 	printf "-a <URL>\n";
@@ -209,10 +218,10 @@ if (defined($opt_a)) {
 
 $0 = "r2e";
 
-$query = "SELECT feedurl from ${dbfee}";
+$query = "SELECT id,feedurl from ${dbfee}";
 if (defined($opt_r)) {
 	if ($opt_r > 0) {
-		$query .= " where rowid = $opt_r";
+		$query .= " where id = $opt_r";
 	} else {
 		die "Invalid -r argument: $opt_r";
 	}
@@ -713,6 +722,12 @@ do {
 $0 = "r2e mailqueue";
 run_mailqueue();
 
+# Lets try to cleanup, shall we?
+my $db = FDC::db->new($dsn,"","");
+$db->doquery("vacuum");
+$db->{dbh}->disconnect;
+$db = undef;
+
 exit(0);
 
 1;
@@ -882,7 +897,7 @@ guid_seen {
 sub
 feed_seen {
 	my ($db, $feedurl) = @_;
-	my $query = sprintf "SELECT rowid from %s where feedurl = '%s'",
+	my $query = sprintf "SELECT id from %s where feedurl = '%s'",
 		$dbfee, $feedurl;
 	if ($verbose > 0) {
 		printf STDERR "feed_seen: query=\"%s\"\n",$query;
