@@ -122,6 +122,10 @@ my @URLS;
 my $db = FDC::db->new($dsn,"","");
 my $dbh = $db->getdbh();
 my @tables = $dbh->tables();
+
+$dbh->disconnect();
+$db = undef;
+
 my $dbtab = "r2e_ids";
 my $dbfee = "r2e_feeds";
 my $dbque = "r2e_queue";
@@ -165,6 +169,7 @@ if ($create_notify) {
 
 if ($opt_p > 0) {
 	$query = "SELECT * from ${dbfee}";
+	$db = FDC::db->new($dsn,"","");
 	my $sth = $db->doquery($query);
 	if (defined($sth) && $sth != -1) {
 		while (my ($id,$url,$edate) = $sth->fetchrow_array) {
@@ -172,6 +177,8 @@ if ($opt_p > 0) {
 		}
 		$sth->finish;
 	}
+	$db->{dbh}->disconnect;
+	$db = undef;
 	exit(0);
 }
 if (defined($opt_d)) {
@@ -194,8 +201,6 @@ if (defined($opt_d)) {
 }
 
 if (defined($opt_a) && length($opt_a) > 0) {
-	$db->{dbh}->disconnect;
-	$db = undef;
 	$inserted = 0;
 	my $feedid = feed_cache($opt_a);
 	if (!defined($feedid)) {
@@ -210,7 +215,9 @@ if (defined($opt_a) && length($opt_a) > 0) {
 	}
 	printf "%4d: %s (%s)\n",$feedid,$opt_a,$action;
 	$opt_r = $feedid;
+	$opt_a = undef;
 }
+
 if (defined($opt_a)) {
 	printf "-a <URL>\n";
 	exit(1);
@@ -227,6 +234,7 @@ if (defined($opt_r)) {
 	}
 }
 
+$db = FDC::db->new($dsn,"","");
 my $sth = $db->doquery($query);
 if (!defined($sth)) {
 	die "Failed to get URL list from db: $!";
@@ -723,7 +731,7 @@ $0 = "r2e mailqueue";
 run_mailqueue();
 
 # Lets try to cleanup, shall we?
-my $db = FDC::db->new($dsn,"","");
+$db = FDC::db->new($dsn,"","");
 $db->doquery("vacuum");
 $db->{dbh}->disconnect;
 $db = undef;
