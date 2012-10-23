@@ -1,0 +1,53 @@
+A sample twitter email (twitters text/plain version):
+
+Exclusive invitation
+Start advertising on Twitter
+<http://app.tweet.twitter.com/e/er?s=XXXXXXXXX&lid=175&elq=XXXXXXXXXXXXXXXXXXX>
+
+Email not displaying correctly?
+View it in your browser
+<http://app.tweet.twitter.com/e/es?s=XXXXXXXXX&e=2100&elq=XXXXXXXXXXXXXXXXXXX>
+
+"Twitter"
+
+"@" <http://app.tweet.twitter.com/e/er?s=XXXXXXXXX&lid=175&elq=XXXXXXXXXXXXXXXXXXX>
+
+@freedaemoncom, you're invited to advertise on Twitter
+<http://app.tweet.twitter.com/e/er?s=XXXXXXXXX&lid=175&elq=XXXXXXXXXXXXXXXXXXX>.
+
+Gain more followers, reach more customers and grow your business.
+
+"Start advertising"
+<http://app.tweet.twitter.com/e/er?s=XXXXXXXXX&lid=175&elq=XXXXXXXXXXXXXXXXXXX>
+
+Twitter, Inc.   |   business.twitter.com
+<http://app.tweet.twitter.com/e/er?s=XXXXXXXXX&lid=26&elq=XXXXXXXXXXXXXXXXXXX>   |
+@TwitterSmallBiz
+<http://app.tweet.twitter.com/e/er?s=XXXXXXXXX&lid=27&elq=XXXXXXXXXXXXXXXXXXX>    1355
+Market St., Suite 900 San Francisco, CA 94103    Unsubscribe
+<http://app.tweet.twitter.com/e/u?s=XXXXXXXXX&elq=XXXXXXXXXXXXXXXXXXX>
+
+h2t converted text/html:
+
+[-- Autoview using ~/bin/h2t file:'/home/todd/.tmp/muttsf9lkg' --]
+Exclusive invitation
+(Start advertising on Twitter)[0]
+Email not displaying correctly?
+(View it in your browser)[1][0] @yourtwitterid, you're invited to (advertise
+on Twitter)[0] .
+Gain more followers, reach more customers and grow your business.[0] Twitter,
+Inc. | business.twitter.com[2] | @TwitterSmallBiz[3]
+1355 Market St., Suite 900 San Francisco, CA 94103
+Unsubscribe[4]
+
+References:
+ 0. http://app.tweet.twitter.com/e/er?s=XXXXXXXXX&lid=175&elq=XXXXXXXXXXXXXXXXXXX
+ 1. http://app.tweet.twitter.com/e/es?s=XXXXXXXXX&e=2100&elq=XXXXXXXXXXXXXXXXXXX
+ 2. http://app.tweet.twitter.com/e/er?s=XXXXXXXXX&lid=26&elq=XXXXXXXXXXXXXXXXXXX
+ 3. http://app.tweet.twitter.com/e/er?s=XXXXXXXXX&lid=27&elq=XXXXXXXXXXXXXXXXXXX
+ 4. http://app.tweet.twitter.com/e/u?s=XXXXXXXXX&elq=XXXXXXXXXXXXXXXXXXX
+
+-- HTML->text courtesy HTML::FormatText::WithImgLinks (by Todd Fries) --
+In/Out = 17.52KB/867.00B  (4.83%)  Total/Ignore/Unknown = 482/387/0 tags
+
+I think mine is prettier... but I'm biased ;-)
