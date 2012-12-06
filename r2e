@@ -985,8 +985,10 @@ queue_mail {
 }
 sub
 run_mailqueue {
+	my $count = 0;
 	my @ids;
 	my $query = sprintf "SELECT id, message, recipient from %s", $dbque;
+	printf "Sending mail...";
 	my $db = FDC::db->new($dsn,"","");
 	my $sth = $db->doquery($query);
 	if (defined($sth) && $sth != -1) {
@@ -995,10 +997,13 @@ run_mailqueue {
 			open(MAIL,"|/usr/sbin/sendmail $recipient");
 			print MAIL $message;
 			close(MAIL);
+			$count++;
 			push @ids,$id;
 		}
 		$sth->finish;
 	}
+	printf " %d messages sent.\n",$count;
+	
 	$0 = "r2e mailqueue";
 	for my $id (@ids) {
 		$0 = "r2e mailqueue: delete id=$id";
