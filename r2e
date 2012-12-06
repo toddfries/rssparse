@@ -796,7 +796,7 @@ parse_to_text
 {
 	my ($rsscset,$text,$wordwrap) = @_;
 
-	my $f = HTML::FormatText::WithImgLinks->new($rsscset,$wordwrap);
+	my $f = HTML::FormatText::WithImgLinks->new($rsscset,wordwrap => $wordwrap, tagline => $wordwrap);
 	eval {
 		$text = $f->parse($text);
 		$f = undef;
