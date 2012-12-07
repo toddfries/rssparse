@@ -749,6 +749,7 @@ parse
 				next;
 			}
 			if ($t->[1] =~ /^(br|div|span|input|form)/i) {
+				$c .= " ";
 				$tign++;
 				next;
 			}
@@ -761,6 +762,7 @@ parse
 				next;
 			}
 			if ($t->[1] =~ m/^(table|tbody|tr|td|object|param|embed|iframe)$/i) {
+				$c .= " ";
 				$tign++;
 				next;
 			}
@@ -1011,6 +1013,7 @@ parse
 			$out .= $word." ";
 			$pos += $wl;
 		}
+		$out .= " ";
 		if ($finalcr) {
 			$out.="\n";
 		}
@@ -1019,6 +1022,7 @@ parse
 		$out = $output;
 	}
 	$out =~ s/[ \t]*$//g;
+	$out =~ s/[ \t][ \t]/ /g;
 	# add footnotes
 	$out .= $f;
 	# add signature
