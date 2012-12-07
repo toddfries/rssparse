@@ -699,12 +699,22 @@ parse
 				$tign++;
 				next;
 			}
+			if ($t->[1] =~ m/^table$/i) {
+				$c .= "\n\n";
+				$tign++;
+				next;
+			}
 			if ($t->[1] =~ m/^tr$/i) {
 				$c .= "\n";
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^(table|tbody|td|object|param|embed|iframe)$/i) {
+			if ($t->[1] =~ m/^td$/i) {
+				$c .= "\t";
+				$tign++;
+				next;
+			}
+			if ($t->[1] =~ m/^(tbody|object|param|embed|iframe)$/i) {
 				$tign++;
 				next;
 			}
