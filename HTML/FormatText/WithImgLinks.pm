@@ -1098,9 +1098,9 @@ parse
 	}
 	$self->{parserr} = $err;
 	$i=0;
-	while ($i < $#verb) {
+	while ($i <= $#verb) {
 		my $verbtext = $verb[$i];
-		$out =~ s/%%verb$i%%/$verbtext/g;
+		$out =~ s/%%verb${i}%%/$verbtext/g;
 		$i++;
 	}
 	return $out;
