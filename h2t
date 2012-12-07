@@ -1,6 +1,6 @@
 #!/usr/bin/perl
 
-# Copyright (c) 2010 Todd T. Fries <todd@fries.net>
+# Copyright (c) 2010,2011,2012 Todd T. Fries <todd@fries.net>
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -28,8 +28,8 @@ eval {
 #	use Getopt;
 #}
 
-our $opt_v = 0;
-getopts('v');
+our ($opt_v,$opt_w) = (0,1);
+getopts('vw:');
 
 my $verbose = $opt_v;
 
@@ -68,7 +68,7 @@ parse_to_text
 {
 	my ($rsscset,$text) = @_;
 
-	my $f = HTML::FormatText::WithImgLinks->new($rsscset,1);
+	my $f = HTML::FormatText::WithImgLinks->new($rsscset, wordwrap => $opt_w, tagline => 0);
 	$text = $f->parse($text);
 	$f = undef;
 

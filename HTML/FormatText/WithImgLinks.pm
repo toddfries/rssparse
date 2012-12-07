@@ -27,16 +27,21 @@ use FDC::CleanText;
 sub
 new
 {
-	my ($class,$cset,$wordwrap) = @_;
+	my ($class,$cset,%opts) = @_;
 
 	my $self = { };
 
 	my $ret = bless $self,$class;
 	$self->{cset} = $cset;
-	if (defined($wordwrap)) {
-		$self->{wordwrap}=$wordwrap;
+	if (defined($opts{'wordwrap'})) {
+		$self->{wordwrap}=$opts{'wordwrap'};
 	} else {
 		$self->{wordwrap}=0;
+	}
+	if (defined($opts{'tagline'})) {
+		$self->{tagline}=$opts{'tagline'};
+	} else {
+		$self->{tagline}=0;
 	}
 	@{$self->{filters}}=();
 	$self->init;
@@ -561,14 +566,20 @@ parse
 	my $f = "";
 	my @urls;
 	my @imgs;
+	my @verb;
 	my ($tcount,$tign,$tunk) = (0,0,0);
 	my %stags;
 	my %etags;
+	my $verbatim = 0;
 	while (my $t = $p->get_token()) {
 		$tcount++;
 		if ($t->[0] eq "T") { # Text
 			my $tt = $t->[1];
 			$tt =~ s/&nbsp;/ /g;
+			if ($verbatim > 0) {
+				$c .= $tt;
+				next;
+			}
 			if (!($tt =~ /^[[:space:]]*$/)) {
 				$tt .= " ";
 			}
@@ -630,6 +641,23 @@ parse
 				printf STDERR "parse:S:(a|link): Unhandled\n";
 				next;
 			}
+			if ($t->[1] =~ m/^(pre|code)$/i) {
+				my $verbtext = $p->get_text("/".$t->[1]);
+				#my $oldverbtext = $verbtext." ";
+				#while ($verbtext ne $oldverbtext) {
+				#	$oldverbtext = $verbtext;
+				#}
+				#push @urls,$href;
+				#$c .= "%%url$#urls%%";
+				push @verb, $verbtext;
+				$c .= "%%verb$#verb%%";
+				$verbatim++;
+				if (0) {
+					printf STDERR "%s: '%s'\n",$t->[1],
+					    $verb[$#verb];
+				}
+				next;
+			}
 			if ($t->[1] =~ m/^img$/i) {
 				my $img = $self->getsub($t,'src');
 				if (defined($img)) {
@@ -642,7 +670,7 @@ parse
 					next;
 				}
 			}
-			if ($t->[1] =~ m/^(pre|code|abbr)$/i) {
+			if ($t->[1] =~ m/^(abbr)$/i) {
 				$tign++;
 				next;
 			}
@@ -671,7 +699,22 @@ parse
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^(table|tbody|tr|td|object|param|embed|iframe)$/i) {
+			if ($t->[1] =~ m/^table$/i) {
+				$c .= "\n\n";
+				$tign++;
+				next;
+			}
+			if ($t->[1] =~ m/^tr$/i) {
+				$c .= "\n";
+				$tign++;
+				next;
+			}
+			if ($t->[1] =~ m/^td$/i) {
+				$c .= "\t";
+				$tign++;
+				next;
+			}
+			if ($t->[1] =~ m/^(tbody|object|param|embed|iframe)$/i) {
 				$tign++;
 				next;
 			}
@@ -740,15 +783,20 @@ parse
 				$astate--;
 				next;
 			}
+			if ($t->[1] =~ m/^(pre|code)$/i) {
+				$verbatim--;
+				next;
+			}
 			if ($t->[1] =~ m/^img$/i) {
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^(pre|code|abbr)$/i) {
+			if ($t->[1] =~ m/^(abbr)$/i) {
 				$tign++;
 				next;
 			}
 			if ($t->[1] =~ /^(br|div|span|input|form)/i) {
+				$c .= " ";
 				$tign++;
 				next;
 			}
@@ -760,7 +808,12 @@ parse
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^(table|tbody|tr|td|object|param|embed|iframe)$/i) {
+			if ($t->[1] =~ m/^tr$/i) {
+				$tign++;
+				next;
+			}
+			if ($t->[1] =~ m/^(table|tbody|td|object|param|embed|iframe)$/i) {
+				$c .= " ";
 				$tign++;
 				next;
 			}
@@ -838,7 +891,11 @@ parse
 			$tign++;
 			next;
 		}
-		if ($t->[0] eq "D") { # Doctype
+		if ($t->[0] eq "D") { # Declaration
+			$tign++;
+			next;
+		}
+		if ($t->[0] eq "PI") { # process instructions
 			$tign++;
 			next;
 		}
@@ -1011,6 +1068,7 @@ parse
 			$out .= $word." ";
 			$pos += $wl;
 		}
+		$out .= " ";
 		if ($finalcr) {
 			$out.="\n";
 		}
@@ -1019,10 +1077,11 @@ parse
 		$out = $output;
 	}
 	$out =~ s/[ \t]*$//g;
+	$out =~ s/[ \t][ \t]/ /g;
 	# add footnotes
 	$out .= $f;
 	# add signature
-	if ($self->{wordwrap}) {
+	if ($self->{tagline} > 0) {
 		my $localout = length($out);
 		my $percent;
 		$out .= "\n-- HTML->text courtesy HTML::FormatText::WithImgLinks (by Todd Fries) --\n";
@@ -1038,6 +1097,12 @@ parse
 		$out .= sprintf "Total/Ignore/Unknown = %s/%s/%s tags\n",$tcount,$tign,$tunk;
 	}
 	$self->{parserr} = $err;
+	$i=0;
+	while ($i <= $#verb) {
+		my $verbtext = $verb[$i];
+		$out =~ s/%%verb${i}%%/$verbtext/g;
+		$i++;
+	}
 	return $out;
 }
 
