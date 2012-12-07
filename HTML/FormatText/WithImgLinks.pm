@@ -1076,7 +1076,7 @@ parse
 	} else {
 		$out = $output;
 	}
-	$out =~ s/[ \t]*$//g;
+	$out =~ s/[ \t]+$//g;
 	$out =~ s/[ \t][ \t]/ /g;
 	# add footnotes
 	$out .= $f;
