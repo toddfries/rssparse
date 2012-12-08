@@ -1078,6 +1078,8 @@ parse
 	}
 	$out =~ s/[ \t]+$//g;
 	$out =~ s/[ \t][ \t]/ /g;
+	# seriously?
+	$out =~ s/\&#064;/\@/g;
 	# add footnotes
 	$out .= $f;
 	# add signature
