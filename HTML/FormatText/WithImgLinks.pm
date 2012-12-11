@@ -43,6 +43,10 @@ new
 	} else {
 		$self->{tagline}=0;
 	}
+	if (defined($opts{'URL'})) {
+		$self->{URL} = $opts{'URL'};
+		$self->{URL} =~ s/\/$//;
+	}
 	@{$self->{filters}}=();
 	$self->init;
 	return $ret;
@@ -564,7 +568,7 @@ parse
 	my $ignorestate = 0;
 	my $i = 0;
 	my $f = "";
-	my @urls;
+	@{$self->{urls}} = ();
 	my @imgs;
 	my @verb;
 	my ($tcount,$tign,$tunk) = (0,0,0);
@@ -587,7 +591,7 @@ parse
 			if ($astate) {
 				$tt =~ s/[ ]+$//;
 				if (length($tt)>0) {
-					my $url = $urls[$#urls];
+					my $url = ${$self->{urls}}[$#{$self->{urls}}];
 					$self->strip_compare($tt,$url);
 					if ($tt =~ m/ / && $self->ref_filter($url)) {
 						$tt = "($tt)";
@@ -622,13 +626,13 @@ parse
 				}
 				my $href=$self->getsub($t,'href');
 				if (defined($href)) {
-					push @urls,$href;
+					$self->stash_url($href);
 					$astate++;
 					next;
 				}
 				my $name=$self->getsub($t,'name');
 				if (defined($name)) {
-					push @urls,$name;
+					$self->stash_url($name);
 					$astate++;
 					next;
 				}
@@ -779,7 +783,7 @@ parse
 						next;
 					}
 				}
-				$c .= "%%url$#urls%%";
+				$c .= "%%url$#{$self->{urls}}%%";
 				$astate--;
 				next;
 			}
@@ -932,10 +936,10 @@ parse
 	}
 	my $cache;
 	my $footnotefmt;
-	if (@urls) {
+	if (@{$self->{urls}}) {
 		$i = 0;
 		@{$cache} = ();
-		foreach my $u (@urls) {
+		foreach my $u (@{$self->{urls}}) {
 			if ($self->ref_filter($u)) {
 				$self->getoffset($u,$cache);
 			}
@@ -943,7 +947,7 @@ parse
 		$f .= "\nReferences:\n" if $#{$cache} > -1;
 		$footnotefmt = sprintf " %%%dx. %%s\n",$self->powerofsixteen($#{$cache});
 		@{$cache} = ();
-		foreach my $u (@urls) {
+		foreach my $u (@{$self->{urls}}) {
 			my $ucount = $#{$cache};
 			my $urlstr = "";
 			my $offset;
@@ -1108,6 +1112,17 @@ parse
 	return $out;
 }
 
+sub
+stash_url
+{
+	my ($self, $href) = @_;
+
+	my $ref = $self->ref_munge($href);
+	
+	#printf STDERR "Pushed href %s\n",$ref;
+	push @{$self->{urls}}, $ref;
+}
+
 #
 # size_format(size in bytes)
 #
@@ -1171,6 +1186,35 @@ powerofsixteen
 	}
 	return $pow;
 }
+sub
+ref_munge
+{
+	my ($self,$ref) = @_;
+	my $URL = $self->{URL};
+
+	if ($ref =~ m/^[a-z]+:/) {
+		return $ref;
+	}
+	if ($ref =~ m/^[a-zA-Z0-9]/) {
+		return $URL."/".$ref;
+	}
+	if ($ref =~ m/^#/) {
+		return $URL.$ref;
+	}
+	if ($ref =~ m/^\//) {
+		$URL =~ m/^([a-z]+:\/\/[^\/]+)[\/]/;
+		if (defined($1)) {
+			return $1.$ref;
+		}
+		$URL =~ m/^([a-z]+:\/\/[^\/]+)$/;
+		if (defined($1)) {
+			return $1.$ref;
+		}
+	}
+	printf STDERR "ref_munge: Unhandled ref: '%s'\n",$ref;
+	return $ref;
+}
+
 sub
 ref_filter
 {

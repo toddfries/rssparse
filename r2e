@@ -348,7 +348,7 @@ foreach my $URL (@URLS) {
 	}
 	my $feedemail  = $feed->{rss}->{channel}->{dc}->{creator};
 	my $feedsubject = $feed->{rss}->{channel}->{dc}->{subject};
-	my $feedfromname = handletext($feed->language,$feed->title,0);
+	my $feedfromname = handletext($feed->language,$feed->title,0,$URL);
 	my $feedlanguage = $feed->language;
 	my $recipient = ${$conf{'email'}}[0];
 	my $entrycount = 0;
@@ -496,7 +496,7 @@ foreach my $URL (@URLS) {
 
 		# !title = !save
 		$title = "(untitled)" if ! defined($title);
-		$title = handletext($feedlanguage,$title,0);
+		$title = handletext($feedlanguage,$title,0,$URL);
 
 		$title =~ s/[[:space:]][[:space:]]*/ /gs;
 		$title =~ s/^"(.*)"$/$1/g;
@@ -506,7 +506,7 @@ foreach my $URL (@URLS) {
 		$body =~ s@(href|src|data)="(?!(http|ftp))@$1="$base/@gs;
 		my $bodyorig = $body;
 
-		$body = handletext($feedlanguage,$body,1);
+		$body = handletext($feedlanguage,$body,1,$URL);
 		if (compare($body,$title) && length($title) > 65) {
 			$title = substr($title,0,55)."...";
 		}
@@ -777,7 +777,7 @@ handletext
 		if ($tdebug > 0 ) {
 			printf STDERR "Input : '%s'\n",$text;
 		}
-		$r = parse_to_text($cset,encode('UTF-8',$text),$wordwrap);
+		$r = parse_to_text($cset,encode('UTF-8',$text),$wordwrap,$URL);
 		if ($tdebug > 0) {
 			foreach my $lang (('iso-8859-1','iso-8859-2',
 			    'iso-8859-16','ascii','ascii-ctrl','UTF-8')) {
@@ -794,9 +794,9 @@ handletext
 sub
 parse_to_text
 {
-	my ($rsscset,$text,$wordwrap) = @_;
+	my ($rsscset,$text,$wordwrap,$URL) = @_;
 
-	my $f = HTML::FormatText::WithImgLinks->new($rsscset,wordwrap => $wordwrap, tagline => $wordwrap);
+	my $f = HTML::FormatText::WithImgLinks->new($rsscset,wordwrap => $wordwrap, tagline => $wordwrap, URL => $URL);
 	eval {
 		$text = $f->parse($text);
 		$f = undef;

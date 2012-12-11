@@ -57,7 +57,7 @@ foreach my $URL (@ARGV) {
 	if ($type =~ m/text\/(html|plain)/) {
 
 		$content = decode('utf-8', $$text);
-		print parse_to_text('utf-8',$content);
+		print parse_to_text('utf-8',$content,$URL);
 	} else {
 		printf "Not parsing Content-Type: %s\n",$type;
 	}
@@ -66,9 +66,9 @@ foreach my $URL (@ARGV) {
 sub
 parse_to_text
 {
-	my ($rsscset,$text) = @_;
+	my ($rsscset,$text,$URL) = @_;
 
-	my $f = HTML::FormatText::WithImgLinks->new($rsscset, wordwrap => $opt_w, tagline => 0);
+	my $f = HTML::FormatText::WithImgLinks->new($rsscset, wordwrap => $opt_w, tagline => 0, URL => $URL);
 	$text = $f->parse($text);
 	$f = undef;
 
