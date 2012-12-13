@@ -472,21 +472,6 @@ my %charmap = (
 
 # data borrowed from doc2txt
 my %splchars = (
-        "\xC2\xA0" => ' ',              # <nbsp>
-        "\xC2\xA6" => '|',              # <brokenbar>
-        "\xC2\xA9" => '(C)',            # <copyright>
-        "\xC2\xAB" => '<<',             # <laquo>
-        "\xC2\xAC" => '-',              # <negate>
-        "\xC2\xAE" => '(R)',            # <regd>
-        "\xC2\xB1" => '+-',             # <plusminus>
-        "\xC2\xBB" => '>>',             # <raquo>
-
-#       "\xC2\xA7" => '',               # <section>
-#       "\xC2\xB6" => '',               # <para>
-
-        "\xC3\x97" => 'x',              # <mul>
-        "\xC3\xB7" => '/',              # <div>
-
         "\xE2\x80\x82" => '  ',         # <enspc>
         "\xE2\x80\x83" => '  ',         # <emspc>
         "\xE2\x80\x85" => ' ',          # <qemsp>
@@ -505,6 +490,22 @@ my %splchars = (
         "\xE2\x89\xA4" => '<=',         # <leq>
         "\xE2\x89\xA5" => '>=',         # <geq>
 
+        "\xC2\xA0" => ' ',              # <nbsp>
+        "\xC2\xA6" => '|',              # <brokenbar>
+        "\xC2\xA9" => '(C)',            # <copyright>
+        "\xC2\xAB" => '<<',             # <laquo>
+        "\xC2\xAC" => '-',              # <negate>
+        "\xC2\xAE" => '(R)',            # <regd>
+        "\xC2\xB1" => '+-',             # <plusminus>
+        "\xC2\xBB" => '>>',             # <raquo>
+
+#       "\xC2\xA7" => '',               # <section>
+#       "\xC2\xB6" => '',               # <para>
+
+        "\xC3\x97" => 'x',              # <mul>
+        "\xC3\xB7" => '/',              # <div>
+
+
         #
         # Currency symbols
         #
@@ -512,6 +513,7 @@ my %splchars = (
         "\xC2\xA3" => 'Pound',
         "\xC2\xA5" => 'Yen',
         "\xE2\x82\xAC" => 'Euro'
+
 );
 
 
@@ -664,9 +666,14 @@ parse
 			}
 			if ($t->[1] =~ m/^img$/i) {
 				my $img = $self->getsub($t,'src');
+				my $alt = $self->getsub($t,'alt');
 				if (defined($img)) {
 					if (ref_filter($img)) {
 						push @imgs,$img;
+						if (!defined($alt)) {
+							$alt = "IMG";
+						}
+						$c .= "{img:$alt}";
 						$c .= "%%img$#imgs%%";
 					} else {
 						$tign++;
@@ -674,7 +681,7 @@ parse
 					next;
 				}
 			}
-			if ($t->[1] =~ m/^(abbr)$/i) {
+			if ($t->[1] =~ m/^(abbr|fieldset)$/i) {
 				$tign++;
 				next;
 			}
@@ -795,7 +802,7 @@ parse
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^(abbr)$/i) {
+			if ($t->[1] =~ m/^(abbr|fieldset)$/i) {
 				$tign++;
 				next;
 			}
@@ -1026,6 +1033,7 @@ parse
 	#my $output = encode('us-ascii', $text_string);
 
 	$output =~ s/(\xE2..|\xC2.|\xC3.)/($splchars{$1} ? $splchars{$1} : $1)/oge;
+	$output =~ s/\xA9/(C)/g;
 
 	my $utfdebug = 0;
 	foreach my $debugline ((
@@ -1083,8 +1091,14 @@ parse
 	$out =~ s/[ \t]+$//g;
 	$out =~ s/[ \t][ \t]/ /g;
 	# seriously?
+
+	# HTML chars still present after all of the above
 	$out =~ s/\&#064;/\@/g;
 	$out =~ s/\&#149;/o/g; # Square bullet, close enough eh?
+
+	# binary chars that have known equivalents
+	#$out =~ s/\x0a9/(C)/;
+
 	# add footnotes
 	$out .= $f;
 	# add signature
@@ -1192,7 +1206,7 @@ ref_munge
 {
 	my ($self,$ref) = @_;
 	my $URL = $self->{URL};
-
+	
 	if ($ref =~ m/^[a-z]+:/) {
 		return $ref;
 	}
@@ -1211,6 +1225,9 @@ ref_munge
 		if (defined($1)) {
 			return $1.$ref;
 		}
+	}
+	if ($ref =~ m/^$/) {
+		return $ref;
 	}
 	printf STDERR "ref_munge: Unhandled ref: '%s'\n",$ref;
 	return $ref;
