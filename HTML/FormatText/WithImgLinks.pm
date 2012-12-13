@@ -1060,7 +1060,7 @@ parse
 		if (length($line)<1) {
 			next;
 		}
-		foreach my $word (split(/[ \t]/,$line)) {
+		foreach my $word (split(/[ \t]+/,$line)) {
 			if (length($word)<1) {
 				next;
 			}
@@ -1084,6 +1084,7 @@ parse
 	$out =~ s/[ \t][ \t]/ /g;
 	# seriously?
 	$out =~ s/\&#064;/\@/g;
+	$out =~ s/\&#149;/o/g; # Square bullet, close enough eh?
 	# add footnotes
 	$out .= $f;
 	# add signature
