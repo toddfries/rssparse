@@ -1033,7 +1033,7 @@ parse
 	#my $output = encode('us-ascii', $text_string);
 
 	$output =~ s/(\xE2..|\xC2.|\xC3.)/($splchars{$1} ? $splchars{$1} : $1)/oge;
-	$output =~ s/\xA9/(C)/g;
+	#$output =~ s/\xA9/(C)/g; # 'vi' diplays \xa9, terminal displays (C)
 
 	my $utfdebug = 0;
 	foreach my $debugline ((
