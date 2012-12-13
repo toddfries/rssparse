@@ -1,0 +1,4 @@
+Turn this: Comments[11][11][11][11][12][12]
+Into this: Comments[11,12]
+
+figure out why images aren't being handled properly
