@@ -715,7 +715,13 @@ parse
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^tr$/i) {
+			if ($t->[1] =~ m/^(li)$/i) {
+				# XXX handle ol vs ul and counters etc
+				$c .= "\no ";
+				$tign++;
+				next;
+			}
+			if ($t->[1] =~ m/^(tr|ol|ul)$/i) {
 				$c .= "\n";
 				$tign++;
 				next;
@@ -729,7 +735,7 @@ parse
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^(xml|small|ul|ol|li|em|strong|i|sup|center|h[0-9]|big|th)$/i) {
+			if ($t->[1] =~ m/^(xml|small|em|strong|i|sup|center|h[0-9]|big|th)$/i) {
 				$tign++;
 				next;
 			}
@@ -1206,6 +1212,8 @@ ref_munge
 {
 	my ($self,$ref) = @_;
 	my $URL = $self->{URL};
+
+	$ref =~ s/^\.\///;
 	
 	if ($ref =~ m/^[a-z]+:/) {
 		return $ref;
