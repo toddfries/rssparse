@@ -834,7 +834,11 @@ parse
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^(xml|small|ul|ol|li|em|strong|i|sup|center|h[0-9]|big|th)$/i) {
+			if ($t->[1] =~ m/^(ul|ol)$/) {
+				$c .= "\n";
+				next;
+			}
+			if ($t->[1] =~ m/^(xml|small|li|em|strong|i|sup|center|h[0-9]|big|th)$/i) {
 				$tign++;
 				next;
 			}
