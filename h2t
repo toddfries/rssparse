@@ -17,6 +17,7 @@
 use strict;
 use warnings;
 
+use Cwd;
 use LWP::UserAgent;
 use HTML::FormatText::WithImgLinks;
 use Encode qw( encode decode );
@@ -43,6 +44,22 @@ if ($verbose) {
 }
 foreach my $URL (@ARGV) {
 	my $content;
+
+
+	if (! ($URL =~ m/^(ftp|http|https|file):/)) {
+		$URL =~ s/\.\///;
+		if (-f getcwd()."/".$URL) {
+			$URL = getcwd()."/".$URL;
+		} else {
+			if ($verbose) {
+				printf STDERR "URL %s/%s does not exist\n",getcwd(),$URL;
+			}
+		}
+		
+		if ($URL =~ m/^\//) {
+			$URL = "file:/".$URL;
+		}
+	}
 
 	if ($verbose) {
 		printf STDERR "Requesting %s\n",$URL;
