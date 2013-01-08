@@ -43,6 +43,10 @@ new
 	} else {
 		$self->{tagline}=0;
 	}
+	if (defined($opts{'URL'})) {
+		$self->{URL} = $opts{'URL'};
+		$self->{URL} =~ s/\/$//;
+	}
 	@{$self->{filters}}=();
 	$self->init;
 	return $ret;
@@ -468,21 +472,6 @@ my %charmap = (
 
 # data borrowed from doc2txt
 my %splchars = (
-        "\xC2\xA0" => ' ',              # <nbsp>
-        "\xC2\xA6" => '|',              # <brokenbar>
-        "\xC2\xA9" => '(C)',            # <copyright>
-        "\xC2\xAB" => '<<',             # <laquo>
-        "\xC2\xAC" => '-',              # <negate>
-        "\xC2\xAE" => '(R)',            # <regd>
-        "\xC2\xB1" => '+-',             # <plusminus>
-        "\xC2\xBB" => '>>',             # <raquo>
-
-#       "\xC2\xA7" => '',               # <section>
-#       "\xC2\xB6" => '',               # <para>
-
-        "\xC3\x97" => 'x',              # <mul>
-        "\xC3\xB7" => '/',              # <div>
-
         "\xE2\x80\x82" => '  ',         # <enspc>
         "\xE2\x80\x83" => '  ',         # <emspc>
         "\xE2\x80\x85" => ' ',          # <qemsp>
@@ -501,6 +490,22 @@ my %splchars = (
         "\xE2\x89\xA4" => '<=',         # <leq>
         "\xE2\x89\xA5" => '>=',         # <geq>
 
+        "\xC2\xA0" => ' ',              # <nbsp>
+        "\xC2\xA6" => '|',              # <brokenbar>
+        "\xC2\xA9" => '(C)',            # <copyright>
+        "\xC2\xAB" => '<<',             # <laquo>
+        "\xC2\xAC" => '-',              # <negate>
+        "\xC2\xAE" => '(R)',            # <regd>
+        "\xC2\xB1" => '+-',             # <plusminus>
+        "\xC2\xBB" => '>>',             # <raquo>
+
+#       "\xC2\xA7" => '',               # <section>
+#       "\xC2\xB6" => '',               # <para>
+
+        "\xC3\x97" => 'x',              # <mul>
+        "\xC3\xB7" => '/',              # <div>
+
+
         #
         # Currency symbols
         #
@@ -508,6 +513,7 @@ my %splchars = (
         "\xC2\xA3" => 'Pound',
         "\xC2\xA5" => 'Yen',
         "\xE2\x82\xAC" => 'Euro'
+
 );
 
 
@@ -564,7 +570,7 @@ parse
 	my $ignorestate = 0;
 	my $i = 0;
 	my $f = "";
-	my @urls;
+	@{$self->{urls}} = ();
 	my @imgs;
 	my @verb;
 	my ($tcount,$tign,$tunk) = (0,0,0);
@@ -587,7 +593,7 @@ parse
 			if ($astate) {
 				$tt =~ s/[ ]+$//;
 				if (length($tt)>0) {
-					my $url = $urls[$#urls];
+					my $url = ${$self->{urls}}[$#{$self->{urls}}];
 					$self->strip_compare($tt,$url);
 					if ($tt =~ m/ / && $self->ref_filter($url)) {
 						$tt = "($tt)";
@@ -622,13 +628,13 @@ parse
 				}
 				my $href=$self->getsub($t,'href');
 				if (defined($href)) {
-					push @urls,$href;
+					$self->stash_url($href);
 					$astate++;
 					next;
 				}
 				my $name=$self->getsub($t,'name');
 				if (defined($name)) {
-					push @urls,$name;
+					$self->stash_url($name);
 					$astate++;
 					next;
 				}
@@ -660,9 +666,14 @@ parse
 			}
 			if ($t->[1] =~ m/^img$/i) {
 				my $img = $self->getsub($t,'src');
+				my $alt = $self->getsub($t,'alt');
 				if (defined($img)) {
 					if (ref_filter($img)) {
 						push @imgs,$img;
+						if (!defined($alt)) {
+							$alt = "IMG";
+						}
+						$c .= "{img:$alt}";
 						$c .= "%%img$#imgs%%";
 					} else {
 						$tign++;
@@ -670,7 +681,7 @@ parse
 					next;
 				}
 			}
-			if ($t->[1] =~ m/^(abbr)$/i) {
+			if ($t->[1] =~ m/^(abbr|fieldset)$/i) {
 				$tign++;
 				next;
 			}
@@ -704,7 +715,13 @@ parse
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^tr$/i) {
+			if ($t->[1] =~ m/^(li)$/i) {
+				# XXX handle ol vs ul and counters etc
+				$c .= "\no ";
+				$tign++;
+				next;
+			}
+			if ($t->[1] =~ m/^(tr|ol|ul)$/i) {
 				$c .= "\n";
 				$tign++;
 				next;
@@ -718,7 +735,7 @@ parse
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^(xml|small|ul|ol|li|em|strong|i|sup|center|h[0-9]|big|th)$/i) {
+			if ($t->[1] =~ m/^(xml|small|em|strong|i|sup|center|h[0-9]|big|th)$/i) {
 				$tign++;
 				next;
 			}
@@ -779,7 +796,7 @@ parse
 						next;
 					}
 				}
-				$c .= "%%url$#urls%%";
+				$c .= "%%url$#{$self->{urls}}%%";
 				$astate--;
 				next;
 			}
@@ -791,7 +808,7 @@ parse
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^(abbr)$/i) {
+			if ($t->[1] =~ m/^(abbr|fieldset)$/i) {
 				$tign++;
 				next;
 			}
@@ -817,7 +834,11 @@ parse
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^(xml|small|ul|ol|li|em|strong|i|sup|center|h[0-9]|big|th)$/i) {
+			if ($t->[1] =~ m/^(ul|ol)$/) {
+				$c .= "\n";
+				next;
+			}
+			if ($t->[1] =~ m/^(xml|small|li|em|strong|i|sup|center|h[0-9]|big|th)$/i) {
 				$tign++;
 				next;
 			}
@@ -932,10 +953,10 @@ parse
 	}
 	my $cache;
 	my $footnotefmt;
-	if (@urls) {
+	if (@{$self->{urls}}) {
 		$i = 0;
 		@{$cache} = ();
-		foreach my $u (@urls) {
+		foreach my $u (@{$self->{urls}}) {
 			if ($self->ref_filter($u)) {
 				$self->getoffset($u,$cache);
 			}
@@ -943,7 +964,7 @@ parse
 		$f .= "\nReferences:\n" if $#{$cache} > -1;
 		$footnotefmt = sprintf " %%%dx. %%s\n",$self->powerofsixteen($#{$cache});
 		@{$cache} = ();
-		foreach my $u (@urls) {
+		foreach my $u (@{$self->{urls}}) {
 			my $ucount = $#{$cache};
 			my $urlstr = "";
 			my $offset;
@@ -1022,6 +1043,7 @@ parse
 	#my $output = encode('us-ascii', $text_string);
 
 	$output =~ s/(\xE2..|\xC2.|\xC3.)/($splchars{$1} ? $splchars{$1} : $1)/oge;
+	#$output =~ s/\xA9/(C)/g; # 'vi' diplays \xa9, terminal displays (C)
 
 	my $utfdebug = 0;
 	foreach my $debugline ((
@@ -1056,7 +1078,7 @@ parse
 		if (length($line)<1) {
 			next;
 		}
-		foreach my $word (split(/[ \t]/,$line)) {
+		foreach my $word (split(/[ \t]+/,$line)) {
 			if (length($word)<1) {
 				next;
 			}
@@ -1076,8 +1098,17 @@ parse
 	} else {
 		$out = $output;
 	}
-	$out =~ s/[ \t]*$//g;
+	$out =~ s/[ \t]+$//g;
 	$out =~ s/[ \t][ \t]/ /g;
+	# seriously?
+
+	# HTML chars still present after all of the above
+	$out =~ s/\&#064;/\@/g;
+	$out =~ s/\&#149;/o/g; # Square bullet, close enough eh?
+
+	# binary chars that have known equivalents
+	#$out =~ s/\x0a9/(C)/;
+
 	# add footnotes
 	$out .= $f;
 	# add signature
@@ -1104,6 +1135,17 @@ parse
 		$i++;
 	}
 	return $out;
+}
+
+sub
+stash_url
+{
+	my ($self, $href) = @_;
+
+	my $ref = $self->ref_munge($href);
+	
+	#printf STDERR "Pushed href %s\n",$ref;
+	push @{$self->{urls}}, $ref;
 }
 
 #
@@ -1169,6 +1211,40 @@ powerofsixteen
 	}
 	return $pow;
 }
+sub
+ref_munge
+{
+	my ($self,$ref) = @_;
+	my $URL = $self->{URL};
+
+	$ref =~ s/^\.\///;
+	
+	if ($ref =~ m/^[a-z]+:/) {
+		return $ref;
+	}
+	if ($ref =~ m/^[a-zA-Z0-9]/) {
+		return $URL."/".$ref;
+	}
+	if ($ref =~ m/^#/) {
+		return $URL.$ref;
+	}
+	if ($ref =~ m/^\//) {
+		$URL =~ m/^([a-z]+:\/\/[^\/]+)[\/]/;
+		if (defined($1)) {
+			return $1.$ref;
+		}
+		$URL =~ m/^([a-z]+:\/\/[^\/]+)$/;
+		if (defined($1)) {
+			return $1.$ref;
+		}
+	}
+	if ($ref =~ m/^$/) {
+		return $ref;
+	}
+	printf STDERR "ref_munge: Unhandled ref: '%s'\n",$ref;
+	return $ref;
+}
+
 sub
 ref_filter
 {

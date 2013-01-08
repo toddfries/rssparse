@@ -17,6 +17,7 @@
 use strict;
 use warnings;
 
+use Cwd;
 use LWP::UserAgent;
 use HTML::FormatText::WithImgLinks;
 use Encode qw( encode decode );
@@ -44,6 +45,22 @@ if ($verbose) {
 foreach my $URL (@ARGV) {
 	my $content;
 
+
+	if (! ($URL =~ m/^(ftp|http|https|file):/)) {
+		$URL =~ s/\.\///;
+		if (-f getcwd()."/".$URL) {
+			$URL = getcwd()."/".$URL;
+		} else {
+			if ($verbose) {
+				printf STDERR "URL %s/%s does not exist\n",getcwd(),$URL;
+			}
+		}
+		
+		if ($URL =~ m/^\//) {
+			$URL = "file:/".$URL;
+		}
+	}
+
 	if ($verbose) {
 		printf STDERR "Requesting %s\n",$URL;
 	}
@@ -57,7 +74,7 @@ foreach my $URL (@ARGV) {
 	if ($type =~ m/text\/(html|plain)/) {
 
 		$content = decode('utf-8', $$text);
-		print parse_to_text('utf-8',$content);
+		print parse_to_text('utf-8',$content,$URL);
 	} else {
 		printf "Not parsing Content-Type: %s\n",$type;
 	}
@@ -66,9 +83,9 @@ foreach my $URL (@ARGV) {
 sub
 parse_to_text
 {
-	my ($rsscset,$text) = @_;
+	my ($rsscset,$text,$URL) = @_;
 
-	my $f = HTML::FormatText::WithImgLinks->new($rsscset, wordwrap => $opt_w, tagline => 0);
+	my $f = HTML::FormatText::WithImgLinks->new($rsscset, wordwrap => $opt_w, tagline => 0, URL => $URL);
 	$text = $f->parse($text);
 	$f = undef;
 
