@@ -20,6 +20,7 @@ and treatment of non us-ascii characters.  I want to learn, I just lack
 sufficient pointers.
 
 Thanks,
+<pre>
 -- 
 Todd Fries .. todd@fries.net
 
@@ -33,3 +34,4 @@ Todd Fries .. todd@fries.net
                                                  
               37E7 D3EB 74D0 8D66 A68D  B866 0326 204E 3F42 004A
                         http://todd.fries.net/pgp.txt
+</pre>
