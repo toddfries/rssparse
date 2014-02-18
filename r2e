@@ -27,14 +27,14 @@ use Encode qw( encode decode );
 use Date::Manip;
 use DateTime;
 our $dtfdmanip = 1;
-#eval {
-#	require DateTime::Format::DateManip;
-#};
-#if ($@) {
+eval {
+	require DateTime::Format::DateManip;
+};
+if ($@) {
 	$dtfdmanip = 0;
-#} else {
-#	use DateTime::Format::DateManip;
-#}
+} else {
+	use DateTime::Format::DateManip;
+}
 	
 use POSIX qw(strftime);
 use POSIX ":sys_wait_h";
@@ -116,7 +116,33 @@ my $ua = LWP::UserAgent->new();
 $ua->agent( "R2E/0.0 " . $ua->agent );
 $ua->env_proxy();
 
-our $dsn = "dbi:SQLite:dbname=$ENV{'HOME'}/.r2e.db";
+our $dsn;
+if (!defined(${$conf{'dsn'}}[0])) {
+	$dsn = "dbi:SQLite:dbname=$ENV{'HOME'}/.r2e.db";
+} else {
+	$dsn = ${$conf{'dsn'}}[0];
+}
+my $serialtype;
+my $datetype;
+my $oidname;
+my ($trepre, $trepost, $tcreatepost);
+if ($dsn =~ m/:SQLite:/) {
+	$serialtype = "integer PRIMARY KEY AUTOINCREMENT";
+	$datetype = "datestamp DEFAULT CURRENT_TIMESTAMP";
+	$oidname = "rowid";
+	$trepre = $trepost = "\"";
+	$tcreatepost = "";
+} elsif ($dsn =~ m/:Pg:/) {
+	$serialtype = "serial";
+	$datetype = "timestamp DEFAULT now()";
+	$oidname = "oid";
+	$trepre = "\.";
+	$trepost = "\$";
+	$tcreatepost = " with oids ";
+} else {
+	print STDERR "dsn (".$dsn.") has unknown db type, bailing\n";
+	exit(1);
+}
 
 my @URLS;
 my $db = FDC::db->new($dsn,"","");
@@ -133,7 +159,7 @@ my $create_queue = 1;
 my $create_notify = 1;
 my ($feedcount,$feednew,$idcount,$idnew) = (0,0,0,0);
 foreach my $tname (@tables) {
-	if ($tname =~ m/\"${dbtab}\"/) {
+	if ($tname =~ m/${trepre}${dbtab}${trepost}/) {
 		$create_dbtab = 0;
 	}
 	if ($tname =~ m/\"${dbfee}\"/) {
@@ -148,19 +174,19 @@ foreach my $tname (@tables) {
 }
 my $query;
 if ($create_dbtab) {
-	$query = "CREATE TABLE ${dbtab} (feedid integer, guid varchar(256), cdate datestamp DEFAULT CURRENT_TIMESTAMP)";
+	$query = "CREATE TABLE ${dbtab} (feedid integer, guid varchar(256), cdate ".$datetype.")".$tcreatepost;
 	$db->doquery($query);
 }
 if ($create_feeds) {
-	$query = "CREATE TABLE ${dbfee} (id integer PRIMARY KEY AUTOINCREMENT, feedurl varchar(256), edate datestamp DEFAULT CURRENT_TIMESTAMP)";
+	$query = "CREATE TABLE ${dbfee} (id ".$serialtype.", feedurl varchar(256), edate ".$datetype.")".$tcreatepost;
 	$db->doquery($query);
 }
 if ($create_queue) {
-	$query = "CREATE TABLE ${dbque} (id integer PRIMARY KEY AUTOINCREMENT, message TEXT, recipient TEXT)";
+	$query = "CREATE TABLE ${dbque} (id ".$serialtype.", message TEXT, recipient TEXT)".$tcreatepost;
 	$db->doquery($query);
 }
 if ($create_notify) {
-	$query = "CREATE TABLE ${dbnot} (id integer PRIMARY KEY AUTOINCREMENT, message TEXT, recipient TEXT)";
+	$query = "CREATE TABLE ${dbnot} (id ".$serialtype.", message TEXT, recipient TEXT)".$tcreatepost;
 	$db->doquery($query);
 }
 $dbh->disconnect();
@@ -883,7 +909,7 @@ compare
 sub
 guid_seen {
 	my ($db,$feedid,$sha) = @_;
-	my $query = sprintf("SELECT rowid from %s where feedid = %d and guid = '%s'",$dbtab,$feedid,$sha);
+	my $query = sprintf("SELECT ".$oidname." from %s where feedid = %d and guid = '%s'",$dbtab,$feedid,$sha);
 	if ($verbose > 0) {
 		printf STDERR "guid_seen: query=\"%s\"\n",$query;
 	}
@@ -935,7 +961,7 @@ guid_uncache {
 		$db = undef;
 		return;
 	}
-	my $query = sprintf "DELETE FROM %s where rowid = %d",$dbtab,$oid;
+	my $query = sprintf "DELETE FROM %s where ".$oidname." = %d",$dbtab,$oid;
 	if ($verbose > 0) {
 		printf STDERR "guid_uncache: %s\n",$query;
 	}
