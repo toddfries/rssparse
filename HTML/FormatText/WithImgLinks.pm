@@ -1265,6 +1265,8 @@ ref_filter
 		return 0;
 	}
 	foreach my $filter (@{$self->{filters}}) {
+		# somehow 'www.foo.com[1' causes havoc
+		$filter =~ s/^(.*)\[.*$/$1/g;
 		if ($reference =~ m/${filter}$/) {
 			return 0;
 		}
