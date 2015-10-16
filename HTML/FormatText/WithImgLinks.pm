@@ -681,7 +681,7 @@ parse
 					next;
 				}
 			}
-			if ($t->[1] =~ m/^(abbr|fieldset)$/i) {
+			if ($t->[1] =~ m/^(abbr|fieldset|main|nav|footer)$/i) {
 				$tign++;
 				next;
 			}
@@ -767,7 +767,7 @@ parse
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^(event|bgsound|button)/i) {
+			if ($t->[1] =~ m/^(event|bgsound|button|defs|path)/i) {
 				$tign++;
 				next;
 			}
@@ -808,7 +808,7 @@ parse
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^(abbr|fieldset)$/i) {
+			if ($t->[1] =~ m/^(abbr|fieldset|main|nav|footer)$/i) {
 				$tign++;
 				next;
 			}
@@ -825,7 +825,7 @@ parse
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^tr$/i) {
+			if ($t->[1] =~ m/^(tr|path)$/i) {
 				$tign++;
 				next;
 			}
@@ -888,7 +888,7 @@ parse
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ m/^(bgsound|nometa|button)/i) {
+			if ($t->[1] =~ m/^(bgsound|nometa|button|defs)/i) {
 				$tign++;
 				next;
 			}
