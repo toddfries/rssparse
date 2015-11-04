@@ -694,7 +694,7 @@ parse
 				$ignorestate++;
 				next;
 			}
-			if ($t->[1] =~ /^(div|span|p|input|form)/i) {
+			if ($t->[1] =~ /^(div|span|p|input|form|legend)/i) {
 				$tign++;
 				next;
 			}
@@ -804,7 +804,7 @@ parse
 				$verbatim--;
 				next;
 			}
-			if ($t->[1] =~ m/^img$/i) {
+			if ($t->[1] =~ m/^(img|legend)$/i) {
 				$tign++;
 				next;
 			}
