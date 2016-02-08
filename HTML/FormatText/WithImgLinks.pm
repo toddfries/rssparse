@@ -647,7 +647,7 @@ parse
 				printf STDERR "parse:S:(a|link): Unhandled\n";
 				next;
 			}
-			if ($t->[1] =~ m/^(pre|code)$/i) {
+			if ($t->[1] =~ m/^(pre|code|option)$/i) {
 				my $verbtext = $p->get_text("/".$t->[1]);
 				#my $oldverbtext = $verbtext." ";
 				#while ($verbtext ne $oldverbtext) {
@@ -800,7 +800,7 @@ parse
 				$astate--;
 				next;
 			}
-			if ($t->[1] =~ m/^(pre|code)$/i) {
+			if ($t->[1] =~ m/^(pre|code|option)$/i) {
 				$verbatim--;
 				next;
 			}
