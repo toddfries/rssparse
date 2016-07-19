@@ -699,7 +699,7 @@ parse
 				next;
 			}
 			if ($t->[1] =~ m/^br$/i) {
-				$c .= "\n";
+				$c .= "%%LiNeBrEaK%%";
 				next;
 			}
 			if ($t->[1] =~ m/^hr$/i) {
@@ -812,9 +812,13 @@ parse
 				$tign++;
 				next;
 			}
-			if ($t->[1] =~ /^(br|div|span|input|form)/i) {
+			if ($t->[1] =~ /^(div|span|input|form)/i) {
 				$c .= " ";
 				$tign++;
+				next;
+			}
+			if ($t->[1] =~ /^br$/i) {
+				$c .= "%%LiNeBrEaK%%";
 				next;
 			}
 			if ($t->[1] =~ m/^p$/i) {
@@ -1070,7 +1074,7 @@ parse
 	my $rm=79;
 	my $finalcr=0;
 	if ($self->{wordwrap}) {
-	if ($output =~ m/\n/s) {
+	if ($output =~ m/\n$/s) {
 		$finalcr=1;
 	}
 	foreach my $line (split(/\n/,$output)) {
@@ -1105,6 +1109,8 @@ parse
 	# HTML chars still present after all of the above
 	$out =~ s/\&#064;/\@/g;
 	$out =~ s/\&#149;/o/g; # Square bullet, close enough eh?
+
+	$out =~ s/%%LiNeBrEaK%%/\n/g;
 
 	# binary chars that have known equivalents
 	#$out =~ s/\x0a9/(C)/;
