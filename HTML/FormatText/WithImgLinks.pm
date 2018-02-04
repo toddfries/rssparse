@@ -1,4 +1,4 @@
-# Copyright (c) 2010,2011 Todd T. Fries <todd@fries.net>
+# Copyright (c) 2010,2011,2018 Todd T. Fries <todd@fries.net>
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -47,6 +47,16 @@ new
 		$self->{URL} = $opts{'URL'};
 		$self->{URL} =~ s/\/$//;
 	}
+	if (defined($opts{'fmtref'})) {
+		$self->{'fmtref'} = $opts{'fmtref'};
+	} else {
+		$self->{'fmtref'} = sub {
+			my ($self, $offset, $str) = @_;
+			my $footnotefmt = $self->{footnotefmt};
+			return sprintf "${footnotefmt}",$offset,$str;
+		};
+	}
+			
 	@{$self->{filters}}=();
 	$self->init;
 	return $ret;
@@ -966,7 +976,7 @@ parse
 			}
 		}
 		$f .= "\nReferences:\n" if $#{$cache} > -1;
-		$footnotefmt = sprintf " %%%dx. %%s\n",$self->powerofsixteen($#{$cache});
+		$self->{footnotefmt} = sprintf " %%%dx. %%s\n",$self->powerofsixteen($#{$cache});
 		@{$cache} = ();
 		foreach my $u (@{$self->{urls}}) {
 			my $ucount = $#{$cache};
@@ -979,7 +989,7 @@ parse
 			$c =~ s/%%url${i}%%/$urlstr/g;
 			if ($ucount < $#{$cache} && length($urlstr) > 0) {
 				$u =~ s/^mailto://;
-				$f .= sprintf "${footnotefmt}",$offset,$u;
+				$f .= &{$self->{fmtref}}($self,$offset,$u);
 			}
 			$i++;
 		}
