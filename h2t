@@ -22,6 +22,9 @@ use LWP::UserAgent;
 use HTML::FormatText::WithImgLinks;
 use Encode qw( encode decode );
 
+#use utf8::all; # ? XXX where is this
+no warnings 'utf8';
+
 eval {
 	use OpenBSD::Getopt;
 };
