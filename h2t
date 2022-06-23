@@ -29,14 +29,14 @@ eval {
 	use OpenBSD::Getopt;
 };
 #if ($@) {
-#	use Getopt;
+#	use Getopt::Std;
 #}
 
 our ($opt_v,$opt_w) = (0,1);
-getopts('vw:');
+our $opt_l; # log urls?
+getopts('lvw:');
 
 my $verbose = $opt_v;
-
 
 my $ua = LWP::UserAgent->new();
 $ua->agent( "R2E/0.0 " . $ua->agent );
@@ -93,6 +93,9 @@ parse_to_text
 		my $footnotefmt = $self->{footnotefmt};
 		return sprintf "${footnotefmt}",$offset,$str;
 	});
+	if (defined($opt_l)) {
+		$f->{logurl} = 1;
+	}
 	$text = $f->parse($text);
 	$f = undef;
 
