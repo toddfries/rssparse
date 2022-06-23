@@ -19,6 +19,7 @@ use warnings;
 
 use MIME::Charset;
 use HTML::TokeParser;
+use POSIX qw(strftime);
 
 use Encode;
 
@@ -549,6 +550,7 @@ init
 	#foreach my $key (keys %{$self->{entity2char}}) {
 	#	printf STDERR "init e2c '%s' => '%s'\n",$key,${$self->{entity2char}}{$key};
 	#}
+	$self->{logurl} = 0;
 }
 
 sub
@@ -991,6 +993,7 @@ parse
 				$u =~ s/^mailto://;
 				$f .= &{$self->{fmtref}}($self,$offset,$u);
 			}
+			$self->logurl($i,$u);
 			$i++;
 		}
 	}
@@ -1151,6 +1154,31 @@ parse
 		$i++;
 	}
 	return $out;
+}
+
+sub
+logurl
+{
+	my ($self, $count, $url) = @_;
+	if ($self->{logurl} < 1) {
+		return;
+	}
+	my $logdir=strftime($ENV{'HOME'}."/var/log/0%Y/%m/%d",
+		localtime(time()));
+	if (! -d $logdir) {
+		system("mkdir -p $logdir");
+	}
+	if (!open(L,">>",$logdir."/urls.log")) {
+		print "\n logurl failed to open $logdir/mail-urls.log \n";
+		return;
+	}
+	my $xtra = "";
+	my $msgid = $self->{msgid};
+	if (defined($msgid)) {
+		$xtra = "${msgid} ";
+	}
+	printf L "%s %s%s %s\n", strftime("%Y%m%d %H:%M:%S", localtime(time())), $xtra, $count, $url;
+	close(L);
 }
 
 sub
