@@ -1177,7 +1177,7 @@ logurl
 	if (defined($msgid)) {
 		$xtra = "${msgid} ";
 	}
-	printf L "%s %s%s %s\n", strftime("%Y%m%d %H:%M:%S", localtime(time())), $xtra, $count, $url;
+	printf L "%s %s%x %s\n", strftime("%Y%m%d %H:%M:%S", localtime(time())), $xtra, $count, $url;
 	close(L);
 }
 
