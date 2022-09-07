@@ -602,8 +602,7 @@ parse
 		$tcount++;
 		if ($t->[0] eq "T") { # Text
 			my $tt = $t->[1];
-			$tt =~ s/&nbsp;/ /g;
-			$tt =~ s/\&/\\\&/g;
+			$tt = $self->texquote($tt);
 			if ($verbatim > 0) {
 				$c .= $tt;
 				next;
@@ -651,8 +650,9 @@ parse
 				my $tmpt = $tt;
 				$tmpt =~ s/^\s+//;
 				$tmpt =~ s/\s+$//;
-				if ($lastref ne $tmpt) {
-					$tt = " $tmpt at $lastref";
+				my $tmpl = $self->texquote($lastref);
+				if ($tmpl ne $tmpt) {
+					$tt = " $tmpt at $tmpl";
 				}
 			}
 			if ($ignorestate) {
@@ -1564,4 +1564,14 @@ getsub
 	return $val;
 }
 
+sub texquote {
+	my ($me, $t) = @_;
+
+	$t =~ s/&nbsp;/ /g;
+	$t =~ s/\&/\\\&/g;
+	$t =~ s/_/\\_/g;
+	return $t;
+}
+
 1;
+
